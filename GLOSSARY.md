@@ -5,7 +5,7 @@ paper-bot finds new research papers in Chris's areas of interest on a schedule, 
 ## Language
 
 **Paper**:
-One research publication paper-bot has found, preprint or peer-reviewed, identified across sources as the same work. A lab blog post is not a Paper; one that announces a Paper only points to it.
+One research publication paper-bot has found, preprint or peer-reviewed, identified across sources as the same work. A lab's own paper published only as a PDF or web page still counts. A lab blog post is not a Paper; one that announces a Paper only points to it.
 _Avoid_: article, publication, result
 
 **Interest**:
