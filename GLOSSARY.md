@@ -32,6 +32,10 @@ _Avoid_: result, hit, recommendation
 A Pick outside every Interest, chosen because paper-bot judges it could still matter to Chris.
 _Avoid_: bonus, serendipity pick, extra
 
+**Scan**:
+One scheduled execution of paper-bot: a Daily Scan fetches Candidates, ranks them and writes at most one Daily Briefing; a Weekly Scan fetches nothing and writes the Weekly Briefing from that week's Picks. A Scan with no Picks is skipped, not failed.
+_Avoid_: run (a Brain-Dump Run is one set of Vault changes), job, pass
+
 **Briefing**:
 A scheduled write-up of Picks for one period: a Daily Briefing covers one day, a Weekly Briefing covers one week and is drawn from that week's Daily Briefings.
 _Avoid_: Digest, summary, roundup, report
