@@ -20,6 +20,10 @@ _Avoid_: profile, config, preferences
 A conference or journal a Paper is published in, such as CHI or NeurIPS, named by its common name.
 _Avoid_: source id, outlet, publication
 
+**Candidate**:
+A Paper paper-bot fetched for a Briefing and ranked against the Interests; the best become Picks.
+_Avoid_: result, hit, near miss
+
 **Pick**:
 A Paper paper-bot chose to write up in a Briefing.
 _Avoid_: result, hit, recommendation
