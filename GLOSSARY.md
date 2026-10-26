@@ -16,6 +16,10 @@ _Avoid_: topic, category, keyword
 The Vault note where Chris lists his Interests; paper-bot reads it and never writes it.
 _Avoid_: profile, config, preferences
 
+**Venue**:
+A conference or journal a Paper is published in, such as CHI or NeurIPS, named by its common name.
+_Avoid_: source id, outlet, publication
+
 **Pick**:
 A Paper paper-bot chose to write up in a Briefing.
 _Avoid_: result, hit, recommendation
