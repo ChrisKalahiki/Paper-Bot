@@ -35,21 +35,26 @@ export function tickedKeeps(markdown: string): TickedKeep[] {
 }
 
 /**
- * Sends each Paper newly ticked Keep in the last 30 days' Briefings to the Inbox as a Dump, once ever.
+ * Sends each Paper newly ticked Keep in the last 30 days' Briefings to the Inbox as a Dump, once ever. A failed Keep is
+ * retried each Scan until it can't be: once its Keep line is unticked or its Briefing is over 30 days old, it is dropped.
  * Returns the Briefing footer lines: Keeps that failed, to be retried next Scan, and Keep lines that were ignored.
  */
 export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: number, log: ScanLog): Promise<string[]> {
   const { store, clock } = deps;
   const picks = new Map(store.keepablePicks().map((pick) => [blockIdOf(pick.paper), pick]));
   const handled = new Set(store.keeps().flatMap(({ paper, dump }) => (dump === null ? [] : [paper])));
+  const briefings = store.briefingsSince(localDate(new Date(clock().getTime() - KEEP_WINDOW_DAYS * DAY_MS)));
+  const ticked = new Set<string>();
+  const unread = new Set<string>();
   const issues: string[] = [];
 
-  for (const briefing of store.briefingsSince(localDate(new Date(clock().getTime() - KEEP_WINDOW_DAYS * DAY_MS)))) {
+  for (const briefing of briefings) {
     let text: string;
     try {
       text = await brainDump.show(briefing);
     } catch (error) {
       if (!(error instanceof PaperBotError)) throw error;
+      unread.add(briefing);
       log(`cannot read ${briefing} for Keeps: ${error.message}`);
       continue;
     }
@@ -60,6 +65,7 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
         issues.push(block === undefined ? `Ignored a Keep line in ${where}: it has no ^pick- id.` : `Ignored the Keep line ^${block} in ${where}: it names no Pick.`);
         continue;
       }
+      ticked.add(pick.paper);
       if (handled.has(pick.paper)) continue;
       handled.add(pick.paper);
       try {
@@ -73,6 +79,13 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
         log(`Keep of ${pick.paper} failed: ${error.message}`);
       }
     }
+  }
+
+  for (const { paper, briefing, error } of store.keeps()) {
+    if (error === null || ticked.has(paper) || unread.has(briefing)) continue;
+    store.dropKeep(paper);
+    const why = briefings.includes(briefing) ? "its Keep line is no longer ticked" : `${briefing} is more than ${KEEP_WINDOW_DAYS} days old`;
+    log(`dropped the failed Keep of ${paper}: ${why}`);
   }
   return issues;
 }

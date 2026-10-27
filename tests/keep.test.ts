@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { localDate } from "../src/clock.ts";
 import type { Fetch } from "../src/http.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
 import { tickedKeeps } from "../src/keep.ts";
@@ -159,6 +161,67 @@ describe("a Keep", () => {
     expect({ failing, retried: keeps(storePath).map(({ dump, error }) => ({ dump, error })) }).toEqual({
       failing: [{ dump: null, error: "brain-dump write-dump failed (exit 1): brain-dump: Vault not found at /nowhere" }],
       retried: [{ dump: DUMP, error: null }],
+    });
+  });
+
+  describe("that failed", () => {
+    async function failedKeep() {
+      const { storePath, logDir } = sandbox();
+      const briefing = await mondayBriefing(storePath, logDir, ["pick-2610-31679"]);
+      const refused = fakeCommands({
+        notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: briefing },
+        writeDump: () => ({ exitCode: 1, stdout: "", stderr: "brain-dump: Vault not found at /nowhere\n" }),
+      });
+      await scan({ commands: refused, storePath, logDir, at: TUESDAY });
+      return { storePath, logDir, briefing };
+    }
+
+    const logged = (logDir: string, at: Date) => readFileSync(join(logDir, `${localDate(at)}-daily.log`), "utf8");
+
+    test("is dropped, and logged, once Chris unticks it", async () => {
+      // #given
+      const { storePath, logDir, briefing } = await failedKeep();
+      const unticked = briefing.replace("- [x] Keep ^pick-2610-31679", "- [ ] Keep ^pick-2610-31679");
+      const commands = fakeCommands({ notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: unticked } });
+
+      // #when
+      await scan({ commands, storePath, logDir, at: WEDNESDAY });
+
+      // #then
+      expect({ keeps: keeps(storePath), dumps: writeDumps(commands).length, logged: logged(logDir, WEDNESDAY).includes("no longer ticked") }).toEqual({
+        keeps: [],
+        dumps: 0,
+        logged: true,
+      });
+    });
+
+    test("is dropped, and logged, once its Briefing is more than 30 days old", async () => {
+      // #given
+      const { storePath, logDir, briefing } = await failedKeep();
+      const commands = fakeCommands({ notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: briefing } });
+      const later = new Date("2026-11-26T12:00:00Z");
+
+      // #when
+      await scan({ commands, storePath, logDir, at: later });
+
+      // #then
+      expect({ keeps: keeps(storePath), dumps: writeDumps(commands).length, logged: logged(logDir, later).includes("more than 30 days old") }).toEqual({
+        keeps: [],
+        dumps: 0,
+        logged: true,
+      });
+    });
+
+    test("stays failing while its Briefing can't be read", async () => {
+      // #given
+      const { storePath, logDir } = await failedKeep();
+      const commands = fakeCommands();
+
+      // #when
+      await scan({ commands, storePath, logDir, at: WEDNESDAY });
+
+      // #then
+      expect(keeps(storePath).map(({ paper, error }) => ({ paper, failing: error !== null }))).toEqual([{ paper: "arxiv:2610.31679", failing: true }]);
     });
   });
 

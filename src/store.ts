@@ -179,6 +179,8 @@ export type Store = {
   failingKeeps(): FailingKeep[];
   /** Records a Keep's Dump, or the error of a failed try; a later try replaces it, except that a failure after a failure keeps the first one's time. */
   recordKeep(scanId: number, paper: string, briefing: string, kept: { dump: string } | { error: string }, at: Date): void;
+  /** Forgets a failed Keep that can no longer be retried. */
+  dropKeep(paper: string): void;
   /** The lab post URLs, of those given, that no Scan has read. */
   unreadPosts(urls: string[]): string[];
   markPostsRead(urls: string[], at: Date): void;
@@ -375,6 +377,9 @@ export function openStore(path: string, { existing = false } = {}): Store {
       const paperId = findId.get(paper)?.paper_id;
       if (paperId === undefined) throw new PaperBotError(`Kept Paper ${paper} is not in the store`);
       upsertKeep.run(paperId, scanId, briefing, "dump" in kept ? kept.dump : null, "error" in kept ? kept.error : null, at.toISOString());
+    },
+    dropKeep(paper) {
+      db.run("DELETE FROM keeps WHERE dump IS NULL AND paper_id = (SELECT paper_id FROM paper_ids WHERE id = ?)", [paper]);
     },
     unreadPosts: (urls) => urls.filter((url) => findPost.get(url) === null),
     markPostsRead: (urls, at) => markPostsRead(urls, at.toISOString()),
