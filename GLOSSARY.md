@@ -37,7 +37,7 @@ One scheduled execution of paper-bot: a Daily Scan fetches Candidates, ranks the
 _Avoid_: run (a Brain-Dump Run is one set of Vault changes), job, pass
 
 **Briefing**:
-A scheduled write-up of Picks for one period: a Daily Briefing covers one day, a Weekly Briefing covers one week and is drawn from that week's Daily Briefings.
+A scheduled write-up of Picks for one period: a Daily Briefing is named for the day its Scan ran and covers what appeared since the previous Scan; a Weekly Briefing covers one Monday-to-Sunday week and is drawn from that week's Daily Briefings.
 _Avoid_: Digest, summary, roundup, report
 
 **Keep**:
