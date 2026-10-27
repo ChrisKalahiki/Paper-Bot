@@ -6,7 +6,7 @@ import type { Exec } from "./command.ts";
 import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
 import type { Fetch } from "./http.ts";
-import { INTERESTS_NOTE, type Interest, parseInterestsNote } from "./interests.ts";
+import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
 import { openScanLog, type ScanLog } from "./log.ts";
 import type { PickInput } from "./prompts.ts";
@@ -43,25 +43,33 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
   try {
     const brainDump = brainDumpCli(deps.exec, config.brainDump);
     const keepIssues = await keepTicked(deps, brainDump, scanId, log);
-    const interests = await readInterests(brainDump);
-    log(`Interests: ${interests.map((interest) => interest.name).join("; ")}`);
+    const note = await readInterests(brainDump, Object.keys(config.venues));
+    log(`Interests: ${note.interests.map((interest) => interest.name).join("; ")}`);
+    for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
     const fetched = await fetchSources(deps, sources, log);
     const candidates = fetched.filter((candidate) => !store.isKnown(candidate));
     log(`${candidates.length} new Candidates of ${fetched.length} fetched`);
     if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
-    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, interests, deps, scanId, log);
-    const picks = choosePicks(ranked, config.bars.pick);
+    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, log);
+    const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
-    const prose = await claudeWriter(deps.exec, config.models.write)(picks, interests, startedAt);
+    const prose = await claudeWriter(deps.exec, config.models.write)(picks, note.interests, startedAt);
     const rendered = picks.map(({ candidate, ranking }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
-      return { candidate, interests: ranking.interests, ...written };
+      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written };
     });
-    const markdown = renderDailyBriefing({ at: startedAt, take: prose.take, picks: rendered, candidates: countBySource(ranked), keepIssues });
+    const markdown = renderDailyBriefing({
+      at: startedAt,
+      take: prose.take,
+      picks: rendered,
+      candidates: countBySource(ranked),
+      issues: note.issues,
+      keepIssues,
+    });
     const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
     log(`wrote ${briefing}`);
     return settle(
@@ -77,10 +85,10 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
   }
 }
 
-async function readInterests(brainDump: BrainDump): Promise<Interest[]> {
-  const interests = parseInterestsNote(await brainDump.show(INTERESTS_NOTE));
-  if (interests.length === 0) throw new PaperBotError(`${INTERESTS_NOTE} lists no Interests`);
-  return interests;
+async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
+  const note = parseInterestsNote(await brainDump.show(INTERESTS_NOTE), knownVenues);
+  if (note.interests.length === 0) throw new PaperBotError(`${INTERESTS_NOTE} lists no Interests`);
+  return note;
 }
 
 async function fetchSources(deps: ScanDeps, sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
@@ -99,7 +107,7 @@ async function fetchSources(deps: ScanDeps, sources: SourceResults, log: ScanLog
 type Ranked = PickInput;
 
 /** Ranks in batches, saving each batch's scores as it finishes. A failed batch is logged; the Scan fails only when every batch fails. */
-async function rankAll(rank: Ranker, candidates: Candidate[], interests: Interest[], deps: ScanDeps, scanId: number, log: ScanLog): Promise<Ranked[]> {
+async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNote, deps: ScanDeps, scanId: number, log: ScanLog): Promise<Ranked[]> {
   const ranked: Ranked[] = [];
   const size = deps.config.batch.size;
   let failures = 0;
@@ -109,7 +117,7 @@ async function rankAll(rank: Ranker, candidates: Candidate[], interests: Interes
     const label = `ranking batch ${start / size + 1} of ${batches}`;
     const began = Date.now();
     try {
-      const rankings = await rank(batch, interests);
+      const rankings = await rank(batch, note);
       const scored = batch.flatMap((candidate) => {
         const ranking: Ranking | undefined = rankings.get(primaryId(candidate));
         return ranking === undefined ? [] : [{ candidate, ranking }];
@@ -127,12 +135,20 @@ async function rankAll(rank: Ranker, candidates: Candidate[], interests: Interes
   return ranked;
 }
 
-/** The best Candidates at or above the bar that match an Interest, best first; ties keep fetch order. */
-function choosePicks(ranked: Ranked[], bar: number): Ranked[] {
-  return ranked
-    .filter(({ ranking }) => ranking.score >= bar && ranking.interests.length > 0)
-    .sort((a, b) => b.ranking.score - a.ranking.score)
-    .slice(0, MAX_PICKS);
+/**
+ * The best Candidates at or above the Pick bar that match an Interest, then the best flagged Wildcards that match none
+ * at or above the Wildcard bar, up to the cap. Each best first; ties keep fetch order.
+ */
+function choosePicks(ranked: Ranked[], bars: Config["bars"], wildcardCap: number): Ranked[] {
+  const best = (filter: (ranking: Ranking) => boolean, count: number): Ranked[] =>
+    ranked
+      .filter(({ ranking }) => filter(ranking))
+      .sort((a, b) => b.ranking.score - a.ranking.score)
+      .slice(0, count);
+  return [
+    ...best((ranking) => ranking.score >= bars.pick && ranking.interests.length > 0, MAX_PICKS),
+    ...best((ranking) => ranking.score >= bars.wildcard && ranking.interests.length === 0 && ranking.wildcard, wildcardCap),
+  ];
 }
 
 function countBySource(ranked: Ranked[]): Partial<Record<Candidate["source"], number>> {

@@ -28,6 +28,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     models: { rank: "gpt-test", write: "claude-test" },
     brainDump: "brain-dump",
     arxiv: { categories: ["cs.AI", "cs.CL", "cs.HC"] },
+    venues: {},
     bars: { pick: 7, wildcard: 8 },
     batch: { size: 100, cap: 20 },
     ...overrides,

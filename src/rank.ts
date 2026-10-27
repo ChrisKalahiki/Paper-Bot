@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { type Candidate, primaryId, type Ranking } from "./candidate.ts";
 import { type Exec, parseJson, runCommand } from "./command.ts";
 import { PaperBotError } from "./errors.ts";
-import type { Interest } from "./interests.ts";
+import type { Interest, InterestsNote } from "./interests.ts";
 import { rankPrompt } from "./prompts.ts";
 
 const RANK_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Ranks one batch, keyed by each Candidate's primary id. A Candidate the ranker left out has no entry. */
-export type Ranker = (batch: Candidate[], interests: Interest[]) => Promise<Map<string, Ranking>>;
+export type Ranker = (batch: Candidate[], note: InterestsNote) => Promise<Map<string, Ranking>>;
 
 /** The OpenAI structured-output shape: every property required, no others allowed. */
 const RANK_SCHEMA = {
@@ -37,14 +37,14 @@ const RANK_SCHEMA = {
 };
 
 export function codexRanker(exec: Exec, model: string): Ranker {
-  return async (batch, interests) => {
+  return async (batch, note) => {
     const dir = mkdtempSync(join(tmpdir(), "paper-bot-rank-"));
     try {
       const schema = join(dir, "rank-schema.json");
       writeFileSync(schema, JSON.stringify(RANK_SCHEMA));
       const argv = ["codex", "exec", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "-m", model, "--output-schema", schema, "-"];
-      const stdout = await runCommand(exec, "codex exec", argv, { stdin: rankPrompt(batch, interests), timeoutMs: RANK_TIMEOUT_MS });
-      return readRankings(parseJson("codex exec", stdout), batch, interests);
+      const stdout = await runCommand(exec, "codex exec", argv, { stdin: rankPrompt(batch, note), timeoutMs: RANK_TIMEOUT_MS });
+      return readRankings(parseJson("codex exec", stdout), batch, note.interests);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

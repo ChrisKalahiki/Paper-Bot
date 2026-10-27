@@ -190,12 +190,11 @@ describe("a Keep", () => {
     await scan({ commands, storePath, logDir, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
 
     // #then
-    expect(commands.vault.get(TUESDAY_BRIEFING)?.split("\n").slice(-5)).toEqual([
+    expect(commands.vault.get(TUESDAY_BRIEFING)?.split("\n\n").slice(-4)).toEqual([
       "1 candidates · arXiv 1",
       'Keep of "MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring" failed, to be retried next Scan: brain-dump write-dump failed (exit 1): brain-dump: invalid Dump body: it has no Items',
       "Ignored the Keep line ^pick-2610-3210 in [[2026-10-26 Daily Briefing]]: it names no Pick.",
-      "Ignored a Keep line in [[2026-10-26 Daily Briefing]]: it has no ^pick- id.",
-      "",
+      "Ignored a Keep line in [[2026-10-26 Daily Briefing]]: it has no ^pick- id.\n",
     ]);
   });
 });
