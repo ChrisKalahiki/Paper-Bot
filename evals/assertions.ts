@@ -93,8 +93,16 @@ export function inventedReferences(text: string, input: string): string[] {
   ].map((reference) => `names ${reference}, which is not in the input`);
 }
 
+/**
+ * Avoided terms that are ordinary English about a Paper ("we run ablations", "a job scheduler", "a news article corpus"), so prose may use
+ * them; the check stays on words that would name paper-bot's own concepts, such as Digest or roundup.
+ */
+const ORDINARY_ENGLISH = new Set(["run", "job", "pass", "hit", "near miss", "article", "publication", "outlet", "profile", "preferences", "bonus", "recommendation"]);
+
 export function avoidedTermFailures(text: string): string[] {
-  return avoidedTermsIn(text, GLOSSARY).map((term) => `uses "${term}", an avoided Glossary term`);
+  return avoidedTermsIn(text, GLOSSARY)
+    .filter((term) => !ORDINARY_ENGLISH.has(term.toLowerCase()))
+    .map((term) => `uses "${term}", an avoided Glossary term`);
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];

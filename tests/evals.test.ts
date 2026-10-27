@@ -185,15 +185,20 @@ abstract: We study grading.`;
     ]);
   });
 
-  test("fails a glossary Avoid word anywhere in the prose", () => {
+  test.each([
+    ["names a Briefing a Digest", "Today's Digest is about assistants.", ['uses "Digest", an avoided Glossary term']],
+    ["names a Briefing a roundup", "This roundup is about assistants.", ['uses "roundup", an avoided Glossary term']],
+    ["says we run ablations", "Both teams run ablations on memory.", []],
+    ["mentions a job scheduler, a single pass and a news article", "A job scheduler makes a single pass over each news article.", []],
+  ])("checks Avoid words that name paper-bot's own concepts, not ordinary English: prose that %s", (_, take, expected) => {
     // #given
-    const take = "Today's Digest is about assistants, each article on memory.";
+    const reply = { ...REPLY, take };
 
     // #when
-    const failures = checkDaily({ ...REPLY, take }, EXPECTED, PROMPT);
+    const failures = checkDaily(reply, EXPECTED, PROMPT);
 
     // #then
-    expect(failures).toEqual(['uses "Digest", an avoided Glossary term', 'uses "article", an avoided Glossary term']);
+    expect(failures).toEqual(expected);
   });
 });
 
