@@ -38,6 +38,7 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
   const startedAt = clock();
   const scanId = store.startScan("daily", localDate(startedAt), startedAt);
   const sources: SourceResults = {};
+  const failures: string[] = [];
   log(`Daily Scan ${scanId} started`);
 
   const settle = (result: ScanResult, picks: Parameters<Store["settleScan"]>[2] = []): ScanResult => {
@@ -53,13 +54,13 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     log(`Interests: ${note.interests.map((interest) => interest.name).join("; ")}`);
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
-    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, log);
+    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, failures, log);
     const pending = store.pending();
     const candidates = dropKnown([...pending, ...fetched], store, log);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched and ${pending.length} pending`);
     if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
-    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, log);
+    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, failures, log);
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
@@ -75,13 +76,14 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
       take: prose.take,
       picks: rendered,
       candidates: countBySource(ranked),
+      failures,
       issues: note.issues,
       keepIssues,
     });
     const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
     log(`wrote ${briefing}`);
     return settle(
-      { outcome: "written", briefing },
+      { outcome: "written", briefing, ...(failures.length > 0 && { reason: `degraded: ${failures.join("; ")}` }) },
       rendered.map((pick, i) => ({ candidate: pick.candidate, rank: i + 1, why: pick.why, summary: pick.summary })),
     );
   } catch (error) {
@@ -105,7 +107,7 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
 }
 
 /** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
-async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
+async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, failures: string[], log: ScanLog): Promise<Candidate[]> {
   const { config } = deps;
   const fetch = retryingFetch(deps.fetch, deps.sleep, log);
   const at = deps.clock();
@@ -130,8 +132,9 @@ async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceRes
       }
     }),
   );
-  const failures = fetched.flatMap(({ source, error }) => (error === undefined ? [] : [`${SOURCE_LABELS[source]}: ${error}`]));
-  if (failures.length === fetched.length) throw new PaperBotError(`every source failed (${failures.join("; ")})`);
+  const failed = fetched.flatMap(({ source, error }) => (error === undefined ? [] : [{ source: SOURCE_LABELS[source], error }]));
+  if (failed.length === fetched.length) throw new PaperBotError(`every source failed (${failed.map(({ source, error }) => `${source}: ${error}`).join("; ")})`);
+  failures.push(...failed.map(({ source, error }) => `${source} failed: ${error}`));
   return fetched.flatMap(({ candidates }) => candidates ?? []);
 }
 
@@ -156,7 +159,15 @@ type Ranked = PickInput;
  * Ranks in batches, at most `batch.cap` of them, saving each batch's scores as it finishes. Candidates over the cap and
  * those in a failed batch go to pending, for the next Scan to rank first. The Scan fails only when every batch fails.
  */
-async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNote, deps: ScanDeps, scanId: number, log: ScanLog): Promise<Ranked[]> {
+async function rankAll(
+  rank: Ranker,
+  candidates: Candidate[],
+  note: InterestsNote,
+  deps: ScanDeps,
+  scanId: number,
+  failures: string[],
+  log: ScanLog,
+): Promise<Ranked[]> {
   const { store, clock } = deps;
   const { size, cap } = deps.config.batch;
   const ranked: Ranked[] = [];
@@ -165,9 +176,11 @@ async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNot
   const overflow = candidates.slice(size * cap);
   if (overflow.length > 0) {
     store.addPending(overflow, clock());
-    log(`${overflow.length} Candidates over the cap of ${cap} ranking batches wait for the next Scan`);
+    const over = `${overflow.length} Candidates over the cap of ${cap} ranking batches wait for the next Scan`;
+    failures.push(over);
+    log(over);
   }
-  let failures = 0;
+  let failed = 0;
   for (const [i, batch] of batches.entries()) {
     const label = `Ranking batch ${i + 1} of ${batches.length}`;
     const began = Date.now();
@@ -182,12 +195,13 @@ async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNot
       log(`${label}: ${scored.length} of ${batch.length} scored in ${Date.now() - began} ms`);
     } catch (error) {
       if (!(error instanceof PaperBotError)) throw error;
-      failures++;
+      failed++;
       store.addPending(batch, clock());
+      failures.push(`${label} failed, its Candidates wait for the next Scan: ${error.message}`);
       log(`${label} failed after ${Date.now() - began} ms, its Candidates wait for the next Scan: ${error.message}`);
     }
   }
-  if (failures === batches.length) throw new PaperBotError("every ranking batch failed");
+  if (failed === batches.length) throw new PaperBotError("every ranking batch failed");
   return ranked;
 }
 

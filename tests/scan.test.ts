@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
+import { PaperBotError } from "../src/errors.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
 import type { Sleep } from "../src/retry.ts";
 import { dailyScan } from "../src/scan.ts";
@@ -689,6 +690,65 @@ describe("a Daily Scan that meets failures", () => {
 
     // #then
     expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([["arxiv:2610.31679"], ["arxiv:2610.30001"]]);
+  });
+
+  describe("with a failed source and a failed ranking batch", () => {
+    async function degradedScan() {
+      const { storePath, logDir } = sandbox();
+      const usageLimit = { exitCode: 1, stdout: "", stderr: "usage limit" };
+      const commands = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.32109") ? usageLimit : fakeCodex(PICKED)(argv, stdin)) });
+      const working = arxivFetch();
+      const fetch = async (url: string) => (url.startsWith("https://api.openalex.org/") ? new Response("busy", { status: 429 }) : working(url));
+      const result = await scan({ commands, storePath, logDir, fetch, config: testConfig({ batch: { size: 1, cap: 20 } }) });
+      return { result, commands, storePath };
+    }
+    const failures = [
+      "OpenAlex failed: OpenAlex answered 429",
+      "Ranking batch 1 of 2 failed, its Candidates wait for the next Scan: codex exec failed (exit 1): usage limit",
+    ];
+
+    test("writes a degraded Briefing whose footer names what failed", async () => {
+      // #given
+      const { commands } = await degradedScan();
+
+      // #when
+      const footer = commands.vault.get(BRIEFING)?.trim().split("\n\n").slice(-3);
+
+      // #then
+      expect(footer).toEqual(["1 candidates · arXiv 1", ...failures]);
+    });
+
+    test("records the Scan as written, with what failed as its reason", async () => {
+      // #given
+      const { storePath } = await degradedScan();
+
+      // #when
+      const [row] = stored(storePath).scans;
+
+      // #then
+      expect({ outcome: row?.outcome, reason: row?.reason }).toEqual({ outcome: "written", reason: `degraded: ${failures.join("; ")}` });
+    });
+  });
+
+  test("fails without fetching or calling an LLM when brain-dump can't be started", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const exec: typeof commands.exec = async (argv, options) => {
+      if (argv[0] === "brain-dump") throw new PaperBotError("cannot start brain-dump: ENOENT");
+      return commands.exec(argv, options);
+    };
+    const fetch = arxivFetch();
+
+    // #when
+    const result = await scan({ commands: { ...commands, exec }, storePath, logDir, fetch });
+
+    // #then
+    expect({ result, fetched: fetch.urls, commands: commandNames(commands) }).toEqual({
+      result: { outcome: "failed", reason: "cannot start brain-dump: ENOENT" },
+      fetched: [],
+      commands: [],
+    });
   });
 
   test("logs each LLM call's exit code and duration", async () => {

@@ -14,6 +14,8 @@ export type DailyBriefing = {
   picks: RenderedPick[];
   /** Candidates ranked this Scan, per source. */
   candidates: Partial<Record<SourceName, number>>;
+  /** What failed in a degraded Scan: sources, ranking batches, Candidates over the cap. */
+  failures: string[];
   /** What paper-bot could not read in the Interests Note. */
   issues: string[];
   /** Footer paragraphs on failed Keeps and ignored Keep lines. */
@@ -42,6 +44,7 @@ export function renderDailyBriefing(briefing: DailyBriefing): string {
   const total = counts.reduce((sum, [, count]) => sum + count, 0);
   const footer = [
     [`${total} candidates`, ...counts.map(([source, count]) => `${SOURCE_LABELS[source]} ${count}`)].join(" · "),
+    ...briefing.failures,
     ...(briefing.issues.length > 0 ? [`Interests Note issues: ${briefing.issues.join("; ")}`] : []),
     ...briefing.keepIssues,
   ].join("\n\n");
