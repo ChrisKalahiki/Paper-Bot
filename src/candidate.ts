@@ -1,6 +1,18 @@
-export const SOURCE_LABELS = { arxiv: "arXiv", openalex: "OpenAlex", eric: "ERIC", pmlr: "PMLR", jmlr: "JMLR" } as const;
+export const SOURCE_LABELS = {
+  arxiv: "arXiv",
+  openalex: "OpenAlex",
+  eric: "ERIC",
+  pmlr: "PMLR",
+  jmlr: "JMLR",
+  hf: "HF daily papers",
+} as const;
 
 export type SourceName = keyof typeof SOURCE_LABELS;
+
+/** Sources that point at Papers other sources fetch, adding only the lab Papers no other source can. */
+export type PointerName = "hf";
+
+export type PaperSourceName = Exclude<SourceName, PointerName>;
 
 /**
  * A Paper fetched for ranking. `ids` is its id set, each prefixed by its kind (`arxiv:`, `doi:`, `openalex:`, `eric:`,
@@ -14,7 +26,15 @@ export type Candidate = {
   authors?: string[];
   url: string;
   abstract: string;
+  /** What else points at it, such as "on HF daily papers", given to the ranker as text. */
+  signals?: string[];
 };
+
+/** Text a pointer attaches to the Candidate it points at, found by any of its ids or by its title. */
+export type Signal = { text: string } & ({ ids: string[] } | { title: string });
+
+/** What a pointer found: Signals, plus the lab Papers it announces that have no arXiv id or DOI, as Candidates. */
+export type Pointers = { candidates: Candidate[]; signals: Signal[] };
 
 /** An arXiv Paper's ids: its arXiv id without the version, and the DOI arXiv registers for it. */
 export function arxivIds(id: string): string[] {
@@ -53,8 +73,8 @@ export function primaryId(candidate: Candidate): string {
 export type Ranking = { interests: string[]; score: number; why: string; wildcard: boolean };
 
 /**
- * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids (and an abstract, if
- * it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
+ * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids and signals (and an
+ * abstract, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
  */
 export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[]; conflicts: Candidate[] } {
   const merged: Candidate[] = [];
@@ -69,7 +89,10 @@ export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[];
     }
     const kept = match ?? { ...candidate, ids: [] };
     if (match === undefined) merged.push(kept);
-    else if (kept.abstract === "") kept.abstract = candidate.abstract;
+    else {
+      if (kept.abstract === "") kept.abstract = candidate.abstract;
+      if (candidate.signals !== undefined) kept.signals = [...new Set([...(kept.signals ?? []), ...candidate.signals])];
+    }
     for (const id of candidate.ids) {
       if (owner.has(id)) continue;
       owner.set(id, kept);

@@ -59,6 +59,7 @@ const EMPTY_SOURCES: Record<string, string> = {
   "https://api.ies.ed.gov/eric/": JSON.stringify({ response: { numFound: 0, docs: [] } }),
   "https://proceedings.mlr.press/": EMPTY_RSS,
   "https://www.jmlr.org/": EMPTY_RSS,
+  "https://huggingface.co/": "[]",
 };
 
 /** Recorded source responses: each URL gets the body served under its longest matching prefix, over empty answers from every source. */

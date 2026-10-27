@@ -1,6 +1,6 @@
 import { type BrainDump, brainDumpCli } from "./brain-dump.ts";
 import { dailyBriefingPath, renderDailyBriefing } from "./briefing.ts";
-import { type Candidate, mergeCandidates, primaryId, type Ranking, SOURCE_LABELS, type SourceName } from "./candidate.ts";
+import { type Candidate, mergeCandidates, type PaperSourceName, primaryId, type Ranking, SOURCE_LABELS } from "./candidate.ts";
 import { type Clock, localDate } from "./clock.ts";
 import type { Exec } from "./command.ts";
 import type { Config } from "./config.ts";
@@ -9,6 +9,7 @@ import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
 import { openScanLog, type ScanLog } from "./log.ts";
+import { fetchPointers, withSignals } from "./pointers.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
 import { fetchArxivCandidates } from "./sources/arxiv.ts";
@@ -51,8 +52,11 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
     log(`Interests: ${note.interests.map((interest) => interest.name).join("; ")}`);
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
-    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, log);
-    const candidates = dropKnown(fetched, store, log);
+    const [fetched, pointers] = await Promise.all([
+      fetchSources(deps, watchedVenues(note, config.venues), sources, log),
+      fetchPointers({ fetch: deps.fetch, at: startedAt }, sources, log),
+    ]);
+    const candidates = withSignals(dropKnown([...fetched, ...pointers.candidates], store, log), pointers.signals);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched`);
     if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
@@ -104,7 +108,7 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
 async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
   const { fetch, config } = deps;
   const at = deps.clock();
-  const fetchers: Record<SourceName, () => Promise<Candidate[]>> = {
+  const fetchers: Record<PaperSourceName, () => Promise<Candidate[]>> = {
     arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
     openalex: () => fetchOpenAlexCandidates(fetch, { key: config.openalex.key, venues }, at),
     eric: () => fetchEricCandidates(fetch, at),
@@ -112,7 +116,7 @@ async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceRes
     jmlr: () => fetchJmlrCandidates(fetch),
   };
   const fetched = await Promise.all(
-    (Object.entries(fetchers) as [SourceName, () => Promise<Candidate[]>][]).map(async ([source, fetchCandidates]) => {
+    (Object.entries(fetchers) as [PaperSourceName, () => Promise<Candidate[]>][]).map(async ([source, fetchCandidates]) => {
       try {
         const candidates = await fetchCandidates();
         sources[source] = { candidates: candidates.length };

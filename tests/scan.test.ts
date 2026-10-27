@@ -109,7 +109,14 @@ picks: 2
           outcome: "written",
           reason: null,
           briefing: BRIEFING,
-          sources: { arxiv: { candidates: 2 }, openalex: { candidates: 0 }, eric: { candidates: 0 }, pmlr: { candidates: 0 }, jmlr: { candidates: 0 } },
+          sources: {
+            arxiv: { candidates: 2 },
+            openalex: { candidates: 0 },
+            eric: { candidates: 0 },
+            pmlr: { candidates: 0 },
+            jmlr: { candidates: 0 },
+            hf: { candidates: 0 },
+          },
         },
       ],
       picks: [
@@ -225,6 +232,7 @@ picks: 2
           eric: { error: "ERIC answered 503" },
           pmlr: { error: "PMLR answered 503" },
           jmlr: { error: "JMLR answered 503" },
+          hf: { error: "HF daily papers answered 503" },
         },
       },
     ]);
@@ -614,5 +622,34 @@ describe("a Daily Scan across sources", () => {
     // #then
     const filters = fetch.urls.filter((url) => url.startsWith("https://api.openalex.org/")).map((url) => new URL(url).searchParams.get("filter"));
     expect(filters).toContain("primary_location.source.id:S4363608652|S4363608991,publication_year:2026|2025");
+  });
+});
+
+describe("a Daily Scan with pointers", () => {
+  const candidateIn = (prompt: string | undefined, id: string): string | undefined => prompt?.split("\n\n").find((block) => block.startsWith(`id: ${id}\n`));
+  const withHf = () => sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json") });
+
+  test("tells the ranker, as text, that a Candidate is on HF daily papers", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: withHf() });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: on HF daily papers");
+  });
+
+  test("adds no Candidate for a Paper HF lists that no source fetched", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: withHf() });
+
+    // #then
+    expect(codexCalls(commands).flatMap(({ stdin }) => idsIn(stdin))).toEqual(["arxiv:2610.32109", "arxiv:2610.31679"]);
   });
 });
