@@ -21,7 +21,7 @@ A conference or journal a Paper is published in, such as CHI or NeurIPS, named b
 _Avoid_: source id, outlet, publication
 
 **Candidate**:
-A Paper paper-bot fetched for a Briefing and ranked against the Interests; the best become Picks.
+A Paper paper-bot fetched for a Briefing, to be ranked once against the Interests; the best become Picks. A Candidate a Scan could not rank waits for the next Scan.
 _Avoid_: result, hit, near miss
 
 **Pick**:
