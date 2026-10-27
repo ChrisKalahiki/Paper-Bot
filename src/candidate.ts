@@ -17,3 +17,6 @@ export function primaryId(candidate: Candidate): string {
   if (id === undefined) throw new Error(`Candidate "${candidate.title}" has no id`);
   return id;
 }
+
+/** How the ranker judged one Candidate against the Interests. */
+export type Ranking = { interests: string[]; score: number; why: string; wildcard: boolean };
