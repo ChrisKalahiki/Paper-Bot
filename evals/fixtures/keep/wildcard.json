@@ -1,0 +1,13 @@
+{
+  "briefing": "Research/Briefings/Daily/2026-10-22 Daily Briefing.md",
+  "pick": {
+    "paper": "arxiv:2610.19702",
+    "title": "Bird Song Dialects Shift Within a Decade of Urban Noise",
+    "authors": ["Elena Ruiz", "Marcus Lind"],
+    "url": "https://arxiv.org/abs/2610.19702",
+    "abstract": "Using a self-supervised audio model over 40,000 recordings collected by volunteers from 2014 to 2025, we show that great tits in three European cities raised the minimum pitch of their songs by 220 Hz within ten years, while rural populations did not. The model clusters song dialects without labels, and its clusters match those of expert annotators on 87% of a held-out set.",
+    "interests": [],
+    "why": "Self-supervised audio models turning volunteer recordings into a decade-long measurement, far from any Interest.",
+    "summary": "A self-supervised audio model over 40,000 volunteer recordings showed urban great tits raised their minimum song pitch by 220 Hz in ten years, and its unlabelled dialect clusters matched experts on 87% of held-out songs."
+  }
+}
