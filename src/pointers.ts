@@ -3,6 +3,7 @@ import { messageOf } from "./errors.ts";
 import type { Fetch } from "./http.ts";
 import type { ScanLog } from "./log.ts";
 import { fetchHfPointers } from "./sources/hf.ts";
+import { fetchOpenAiPointers } from "./sources/openai.ts";
 import type { SourceResults } from "./store.ts";
 
 export type PointerDeps = { fetch: Fetch; at: Date };
@@ -11,6 +12,7 @@ export type PointerDeps = { fetch: Fetch; at: Date };
 export async function fetchPointers(deps: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
   const pointers: Record<PointerName, () => Promise<Pointers>> = {
     hf: () => fetchHfPointers(deps.fetch, deps.at),
+    openai: () => fetchOpenAiPointers(deps.fetch),
   };
   const fetched = await Promise.all(
     (Object.entries(pointers) as [PointerName, () => Promise<Pointers>][]).map(async ([name, fetchPointer]): Promise<Pointers> => {

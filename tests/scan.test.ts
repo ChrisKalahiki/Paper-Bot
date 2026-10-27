@@ -116,6 +116,7 @@ picks: 2
             pmlr: { candidates: 0 },
             jmlr: { candidates: 0 },
             hf: { candidates: 0 },
+            openai: { candidates: 0 },
           },
         },
       ],
@@ -233,6 +234,7 @@ picks: 2
           pmlr: { error: "PMLR answered 503" },
           jmlr: { error: "JMLR answered 503" },
           hf: { error: "HF daily papers answered 503" },
+          openai: { error: "OpenAI answered 503" },
         },
       },
     ]);
@@ -651,5 +653,18 @@ describe("a Daily Scan with pointers", () => {
 
     // #then
     expect(codexCalls(commands).flatMap(({ stdin }) => idsIn(stdin))).toEqual(["arxiv:2610.32109", "arxiv:2610.31679"]);
+  });
+
+  test("tells the ranker OpenAI announced a Candidate whose title an OpenAI research post shares, whatever its case", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://openai.com/": fixture("openai-news.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: announced by OpenAI");
   });
 });

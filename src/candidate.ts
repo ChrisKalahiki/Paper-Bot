@@ -5,12 +5,13 @@ export const SOURCE_LABELS = {
   pmlr: "PMLR",
   jmlr: "JMLR",
   hf: "HF daily papers",
+  openai: "OpenAI",
 } as const;
 
 export type SourceName = keyof typeof SOURCE_LABELS;
 
 /** Sources that point at Papers other sources fetch, adding only the lab Papers no other source can. */
-export type PointerName = "hf";
+export type PointerName = "hf" | "openai";
 
 export type PaperSourceName = Exclude<SourceName, PointerName>;
 

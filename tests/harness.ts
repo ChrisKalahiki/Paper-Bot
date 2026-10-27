@@ -60,6 +60,7 @@ const EMPTY_SOURCES: Record<string, string> = {
   "https://proceedings.mlr.press/": EMPTY_RSS,
   "https://www.jmlr.org/": EMPTY_RSS,
   "https://huggingface.co/": "[]",
+  "https://openai.com/": EMPTY_RSS,
 };
 
 /** Recorded source responses: each URL gets the body served under its longest matching prefix, over empty answers from every source. */

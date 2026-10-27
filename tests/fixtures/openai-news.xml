@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>OpenAI News</title>
+    <link>https://openai.com/news</link>
+    <description>The OpenAI blog</description>
+    <item>
+      <title><![CDATA[Context or knowledge: how LLMs attribute their own answers]]></title>
+      <description><![CDATA[We study where a model thinks its answers come from.]]></description>
+      <link>https://openai.com/index/context-or-knowledge/</link>
+      <guid isPermaLink="false">context-or-knowledge</guid>
+      <category><![CDATA[Research]]></category>
+      <pubDate>Sun, 25 Oct 2026 17:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Grading tutors at scale]]></title>
+      <description><![CDATA[A new evaluation of AI tutors.]]></description>
+      <link>https://openai.com/index/grading-tutors/</link>
+      <guid isPermaLink="false">grading-tutors</guid>
+      <category><![CDATA[Publication]]></category>
+      <pubDate>Sat, 24 Oct 2026 17:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Introducing a new office in Tokyo]]></title>
+      <description><![CDATA[We are opening an office.]]></description>
+      <link>https://openai.com/index/tokyo/</link>
+      <guid isPermaLink="false">tokyo</guid>
+      <category><![CDATA[Company]]></category>
+      <pubDate>Fri, 23 Oct 2026 17:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
