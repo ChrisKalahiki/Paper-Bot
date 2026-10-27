@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
@@ -1131,5 +1131,231 @@ describe("a Daily Scan with pointers", () => {
 
     // #then
     expect({ outcome: result.outcome, hf: stored(storePath).scans[0]?.sources?.hf }).toEqual({ outcome: "written", hf: { error: "HF daily papers answered 429" } });
+  });
+});
+
+describe("a Daily Scan after missed or failed days", () => {
+  const API_FEED = fixture("arxiv-api.xml");
+  const RSS = "https://rss.arxiv.org/";
+  const API = "https://export.arxiv.org/";
+  const day = (date: string) => new Date(`${date}T12:00:00Z`);
+  const catchUpFetch = () => sourcesFetch({ [API]: API_FEED });
+  const CAUGHT_UP = { "arxiv:2610.29034": { score: 8, interests: ["Context management in AI"] } };
+
+  /** Daily Scans on each date, skipped: arXiv answers, nothing clears the bar. */
+  async function scannedOn(dates: string[], setup: { storePath: string; logDir: string }, fetch: () => Fetch = () => arxivFetch()) {
+    for (const date of dates) await scan({ ...setup, commands: fakeCommands(), fetch: fetch(), at: day(date) });
+  }
+
+  const submittedWindows = (urls: string[]) => urls.filter((url) => url.startsWith(API)).map((url) => url.match(/submittedDate:\[(\S+?)\]/)?.[1]);
+  const take = (commands: FakeCommands) => [...commands.vault.entries()].find(([path]) => path.startsWith("Research/Briefings/Daily/"))?.[1].match(/^> (.*)$/m)?.[1];
+
+  test("on the first Scan, reads only arXiv's latest announcement", async () => {
+    // #given
+    const setup = sandbox();
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith(RSS) || url.startsWith(API))).toEqual([`${RSS}rss/cs.AI+cs.CL+cs.HC`]);
+  });
+
+  test("on the first Scan, ranks OpenAlex's whole window once, at most the cap of batches", async () => {
+    // #given
+    const setup = sandbox();
+    const works = Array.from({ length: 5 }, (_, i) => ({ id: `https://openalex.org/W${i + 1}`, title: `Work ${i + 1}`, abstract_inverted_index: { Text: [0] } }));
+    const fetch = sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ ...setup, commands, fetch, config: testConfig({ batch: { size: 2, cap: 2 } }) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([
+      ["openalex:W1", "openalex:W2"],
+      ["openalex:W3", "openalex:W4"],
+    ]);
+  });
+
+  test("the day after a Scan, reads only arXiv's latest announcement", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-25"], setup);
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(submittedWindows(fetch.urls)).toEqual([]);
+  });
+
+  describe("with a gap of 1 day, a failed Scan", () => {
+    async function afterFailedDay() {
+      const setup = sandbox();
+      await scannedOn(["2026-10-24"], setup);
+      await scan({ ...setup, commands: fakeCommands({ notes: {} }), at: day("2026-10-25") });
+      const fetch = catchUpFetch();
+      const commands = fakeCommands({ rankings: CAUGHT_UP });
+      const result = await scan({ ...setup, commands, fetch });
+      return { fetch, commands, result };
+    }
+
+    test("asks the arXiv API for every Paper submitted since the last Scan that didn't fail, instead of the RSS feed", async () => {
+      // #when
+      const { fetch } = await afterFailedDay();
+
+      // #then
+      expect({ rss: fetch.urls.some((url) => url.startsWith(RSS)), windows: submittedWindows(fetch.urls) }).toEqual({
+        rss: false,
+        windows: ["202610210000+TO+202610261200"],
+      });
+    });
+
+    test("writes one Daily Briefing named for today, whose take names the dates it covers", async () => {
+      // #when
+      const { commands, result } = await afterFailedDay();
+
+      // #then
+      expect({ briefing: result.briefing, take: take(commands) }).toEqual({ briefing: BRIEFING, take: "Covers Oct 25–26. Today leans toward context." });
+    });
+  });
+
+  test("with a gap of 3 days, covers each missed day and today", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const fetch = catchUpFetch();
+    const commands = fakeCommands({ rankings: CAUGHT_UP });
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect({ windows: submittedWindows(fetch.urls), take: take(commands) }).toEqual({
+      windows: ["202610190000+TO+202610261200"],
+      take: "Covers Oct 23–26. Today leans toward context.",
+    });
+  });
+
+  test("with a gap of 3 days, asks HF daily papers for each date it covers", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://huggingface.co/"))).toEqual(
+      ["2026-10-23", "2026-10-24", "2026-10-25", "2026-10-26"].map((date) => `https://huggingface.co/api/daily_papers?date=${date}`),
+    );
+  });
+
+  test("with a gap of 3 days, gives the ranker the HF signal of a missed date", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const listed = JSON.stringify([{ paper: { id: "2610.29034" } }]);
+    const fetch = sourcesFetch({ [API]: API_FEED, "https://huggingface.co/api/daily_papers?date=2026-10-24": listed });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain("keeps agents on task over 400 steps.\nsignals: on HF daily papers");
+  });
+
+  test("with a gap of 9 days, covers only the last 7 days", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-16"], setup);
+    const fetch = catchUpFetch();
+    const commands = fakeCommands({ rankings: CAUGHT_UP });
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect({ windows: submittedWindows(fetch.urls), take: take(commands) }).toEqual({
+      windows: ["202610190000+TO+202610261200"],
+      take: "Covers Oct 20–26. Today leans toward context.",
+    });
+  });
+
+  test("counts a day whose arXiv fetch failed as missed, though its Scan didn't fail", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-24"], setup);
+    const working = sourcesFetch();
+    await scannedOn(["2026-10-25"], setup, () => async (url) => (url.startsWith(RSS) ? new Response("busy", { status: 503 }) : working(url)));
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(submittedWindows(fetch.urls)).toEqual(["202610210000+TO+202610261200"]);
+  });
+
+  test("a catch-up Briefing still has at most 5 Picks", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const entries = Array.from({ length: 8 }, (_, i) => `<entry><id>http://arxiv.org/abs/2610.4000${i}v1</id><title>Paper ${i}</title><summary>Abstract ${i}.</summary></entry>`);
+    const fetch = sourcesFetch({ [API]: `<feed><opensearch:totalResults>8</opensearch:totalResults>${entries.join("")}</feed>` });
+    const rankings = Object.fromEntries(entries.map((_, i) => [`arxiv:2610.4000${i}`, { score: 9, interests: ["Context management in AI"] }]));
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands({ rankings }), fetch });
+
+    // #then
+    expect(stored(setup.storePath).picks.length).toBe(5);
+  });
+});
+
+describe("a Daily Scan keeping the store and logs small", () => {
+  test("deletes the abstracts of Papers first seen over 30 days ago that weren't Picked", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands({ rankings: { "arxiv:2610.31679": PICKED["arxiv:2610.31679"] } }), at: new Date("2026-09-25T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    expect(lines.filter((line) => line.includes("abstract")).map((line) => line.replace(/^\S+ /, ""))).toEqual([
+      "Deleted the abstracts of Papers never Picked and first seen before 2026-09-26: 1",
+    ]);
+  });
+
+  test("keeps the abstracts of Papers first seen in the last 30 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands(), at: new Date("2026-09-26T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8")).not.toContain("abstracts");
+  });
+
+  test("deletes its logs older than 90 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    mkdirSync(logDir, { recursive: true });
+    for (const file of ["2026-07-27-daily.log", "2026-07-27-weekly.log", "2026-07-28-daily.log", "notes.txt"]) writeFileSync(join(logDir, file), "");
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readdirSync(logDir).sort()).toEqual(["2026-07-28-daily.log", "2026-10-26-daily.log", "notes.txt"]);
   });
 });

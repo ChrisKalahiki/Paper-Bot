@@ -19,6 +19,8 @@ Before step 1, every Scan sends Picks Chris ticked as Keep to the Inbox. It read
 
 Each source fetch and each `codex exec` or `claude -p` call that fails (a timeout, `is_error`, not logged in, a usage limit) is tried once more after 30 seconds. A Scan that lost some sources or ranking batches still writes its Briefing; the footer names what failed, and the `scans` row records it as the reason.
 
+After missed or failed days, a Scan catches up. arXiv counts as covered through the date of the last Daily Scan that didn't fail and read arXiv. When that is before yesterday, the Scan asks the arXiv query API (`submittedDate`, one request per 3 seconds) for every Paper submitted since 3 days before that date (the oldest deadline its RSS feed could have ended at), at most 7 days back, in place of the RSS feed; Papers already stored or pending drop out, and reads HF daily papers for each date it covers. It writes one Daily Briefing named for today, still with at most 5 Picks, whose take starts "Covers Oct 24–26." The first Scan is an ordinary one: arXiv's latest announcement, and OpenAlex and ERIC's whole windows, ranked up to the batch cap. Each Scan deletes the abstracts of Papers first seen over 30 days ago that were never Picked, and its logs older than 90 days.
+
 It exits 1 when the Scan failed. Picks are chosen from the scores saved since the last Scan that wrote or skipped its Briefing, so running `paper-bot scan --daily` again after a failed Scan reuses its scores instead of ranking again, and is safe to repeat. Each Scan logs to `~/Library/Logs/paper-bot/<date>-daily.log`, including each command's exit code and duration.
 
 ## Weekly Scan
@@ -67,6 +69,28 @@ The config lives at `$XDG_CONFIG_HOME/paper-bot/config.json` (default `~/.config
 The store is SQLite at `$XDG_DATA_HOME/paper-bot/paper-bot.db` (default `~/.local/share`); `PAPER_BOT_DB` overrides the path.
 
 `codex` and `claude` must be logged in, and `brain-dump` must have `write-briefing` and the Briefing origin of `write-dump`.
+
+## Schedule
+
+`launchd/dev.paper-bot.scan.plist` is a LaunchAgent template (label `dev.paper-bot.scan`) that starts `paper-bot scan` at 06:00 local time every day, or when the Mac wakes if it was asleep then. Install it from the checkout launchd should use, in a shell where `codex` is on PATH (with nvm, after `nvm use`):
+
+```sh
+bun scripts/install-launch-agent.ts
+launchctl print gui/$(id -u)/dev.paper-bot.scan   # loaded; "runs" counts the Scans started so far
+```
+
+The script fills in the template with this checkout, this `bun`, your home folder and username, and the folder holding `codex`, writes it to `~/Library/LaunchAgents/dev.paper-bot.scan.plist`, creates `~/Library/Logs/paper-bot`, and loads it into your login session with `launchctl bootstrap`, replacing an earlier install. The agent sets `HOME`, `USER` and `LOGNAME` (without them `claude -p` reports "Not logged in") and a `PATH` of the `codex` folder (its `node` too), bun's folder, `~/.local/bin` (`claude`, `brain-dump`) and the system folders. `claude` reads its login from the Keychain, so you must be logged in to the Mac for a Scan to reach it.
+
+The `codex` folder is written into the plist. With nvm it names the Node version, so after an nvm upgrade the Scans fail with `cannot start codex`: install again. Install again too after moving the checkout or reinstalling bun.
+
+To start a Scan now: `launchctl kickstart gui/$(id -u)/dev.paper-bot.scan`. To uninstall:
+
+```sh
+launchctl bootout gui/$(id -u)/dev.paper-bot.scan
+rm ~/Library/LaunchAgents/dev.paper-bot.scan.plist
+```
+
+Logs are in `~/Library/Logs/paper-bot/`: each Scan's own log (`<date>-daily.log`, `<date>-weekly.log`), and what launchd caught of its output, `launchd.out.log` (how each Scan settled) and `launchd.err.log` (why a Scan failed or could not start).
 
 ## Checks
 

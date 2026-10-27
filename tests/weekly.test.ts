@@ -4,7 +4,7 @@ import type { Fetch } from "../src/http.ts";
 import { dailyScan } from "../src/scan.ts";
 import { scheduledScans } from "../src/schedule.ts";
 import { openStore } from "../src/store.ts";
-import { arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, MONDAY, sourcesFetch, tempDir, testConfig } from "./harness.ts";
+import { arxivApiOf, arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, MONDAY, sourcesFetch, tempDir, testConfig } from "./harness.ts";
 
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
 const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
@@ -42,10 +42,10 @@ const daily = (box: Sandbox, commands: FakeCommands, at: Date, fetch: Fetch) =>
 const scheduled = (box: Sandbox, commands: FakeCommands, at: Date) =>
   withStore(box, (store) => scheduledScans({ config: testConfig(), store, fetch: sourcesFetch(), exec: commands.exec, clock: () => at, logDir: box.logDir, sleep: fakeSleep() }));
 
-/** Daily Briefings on Tue 20 and Thu 22 Oct (2026-W43): four Picks, one a Wildcard. */
+/** Daily Briefings on Tue 20 and Thu 22 Oct (2026-W43), the second catching up on the 21st: four Picks, one a Wildcard. */
 async function weekOfPicks(box: Sandbox, commands: FakeCommands): Promise<void> {
   await daily(box, commands, new Date("2026-10-20T12:00:00Z"), arxivFetch());
-  await daily(box, commands, new Date("2026-10-22T12:00:00Z"), arxivFetch(arxivFeedOf(2)));
+  await daily(box, commands, new Date("2026-10-22T12:00:00Z"), sourcesFetch({ "https://export.arxiv.org/": arxivApiOf(2) }));
 }
 
 const weeklyScans = (box: Sandbox) =>
@@ -310,7 +310,7 @@ describe("a Weekly Briefing's week", () => {
     const box = sandbox();
     const commands = fakeCommands({ rankings: RANKINGS });
     await daily(box, commands, new Date("2026-10-18T12:00:00Z"), arxivFetch());
-    await daily(box, commands, new Date("2026-10-22T12:00:00Z"), arxivFetch(arxivFeedOf(2)));
+    await daily(box, commands, new Date("2026-10-22T12:00:00Z"), sourcesFetch({ "https://export.arxiv.org/": arxivApiOf(2) }));
     await daily(box, commands, MONDAY, arxivFetch(arxivFeedOf(0)));
 
     // #when

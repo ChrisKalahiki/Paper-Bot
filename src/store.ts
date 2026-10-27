@@ -182,6 +182,10 @@ export type Store = {
   /** The lab post URLs, of those given, that no Scan has read. */
   unreadPosts(urls: string[]): string[];
   markPostsRead(urls: string[], at: Date): void;
+  /** The date of the last Daily Scan that didn't fail and read arXiv, if any. */
+  arxivCoveredThrough(): string | undefined;
+  /** Deletes the abstracts of Papers never Picked that were first seen before `before`; returns how many. */
+  pruneAbstracts(before: Date): number;
   close(): void;
 };
 
@@ -373,6 +377,16 @@ export function openStore(path: string, { readonly = false } = {}): Store {
     },
     unreadPosts: (urls) => urls.filter((url) => findPost.get(url) === null),
     markPostsRead: (urls, at) => markPostsRead(urls, at.toISOString()),
+    arxivCoveredThrough: () =>
+      db
+        .query<{ date: string | null }, []>(
+          `SELECT max(date) AS date FROM scans
+           WHERE kind = 'daily' AND outcome IN ('written', 'skipped') AND json_extract(sources, '$.arxiv.candidates') IS NOT NULL`,
+        )
+        .get()?.date ?? undefined,
+    pruneAbstracts: (before) =>
+      db.run("UPDATE papers SET abstract = NULL WHERE abstract IS NOT NULL AND first_seen < ? AND id NOT IN (SELECT paper_id FROM picks)", [before.toISOString()])
+        .changes,
     close: () => db.close(),
   };
 }
