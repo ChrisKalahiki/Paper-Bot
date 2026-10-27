@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
@@ -1315,5 +1315,47 @@ describe("a Daily Scan after missed or failed days", () => {
 
     // #then
     expect(stored(setup.storePath).picks.length).toBe(5);
+  });
+});
+
+describe("a Daily Scan keeping the store and logs small", () => {
+  test("deletes the abstracts of Papers first seen over 30 days ago that weren't Picked", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands({ rankings: { "arxiv:2610.31679": PICKED["arxiv:2610.31679"] } }), at: new Date("2026-09-25T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    expect(lines.filter((line) => line.includes("abstract")).map((line) => line.replace(/^\S+ /, ""))).toEqual([
+      "Deleted the abstracts of Papers never Picked and first seen before 2026-09-26: 1",
+    ]);
+  });
+
+  test("keeps the abstracts of Papers first seen in the last 30 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands(), at: new Date("2026-09-26T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8")).not.toContain("abstracts");
+  });
+
+  test("deletes its logs older than 90 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    mkdirSync(logDir, { recursive: true });
+    for (const file of ["2026-07-27-daily.log", "2026-07-27-weekly.log", "2026-07-28-daily.log", "notes.txt"]) writeFileSync(join(logDir, file), "");
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readdirSync(logDir).sort()).toEqual(["2026-07-28-daily.log", "2026-10-26-daily.log", "notes.txt"]);
   });
 });

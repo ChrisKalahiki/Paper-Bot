@@ -19,6 +19,8 @@ Before step 1, every Scan sends Picks Chris ticked as Keep to the Inbox. It read
 
 Each source fetch and each `codex exec` or `claude -p` call that fails (a timeout, `is_error`, not logged in, a usage limit) is tried once more after 30 seconds. A Scan that lost some sources or ranking batches still writes its Briefing; the footer names what failed, and the `scans` row records it as the reason.
 
+After missed or failed days, a Scan catches up. arXiv counts as covered through the date of the last Daily Scan that didn't fail and read arXiv. When that is before yesterday, the Scan asks the arXiv query API (`submittedDate`, one request per 3 seconds) for every Paper submitted from the day before the first missed date, at most 7 days back, in place of the RSS feed, and reads HF daily papers for each date it covers. It writes one Daily Briefing named for today, still with at most 5 Picks, whose take starts "Covers Oct 24–26." The first Scan is an ordinary one: arXiv's latest announcement, and OpenAlex and ERIC's whole windows, ranked up to the batch cap. Each Scan deletes the abstracts of Papers first seen over 30 days ago that were never Picked, and its logs older than 90 days.
+
 It exits 1 when the Scan failed. Picks are chosen from the scores saved since the last Scan that wrote or skipped its Briefing, so running `paper-bot scan --daily` again after a failed Scan reuses its scores instead of ranking again, and is safe to repeat. Each Scan logs to `~/Library/Logs/paper-bot/<date>-daily.log`, including each command's exit code and duration.
 
 ## Setup

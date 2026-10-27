@@ -10,7 +10,7 @@ import { readFullTexts } from "./full-text.ts";
 import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
-import { openScanLog, type ScanLog } from "./log.ts";
+import { deleteScanLogsBefore, openScanLog, type ScanLog } from "./log.ts";
 import { fetchPointers, withSignals } from "./pointers.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
@@ -25,6 +25,9 @@ import { claudeWriter } from "./write.ts";
 
 const MAX_PICKS = 5;
 const ALSO_CONSIDERED = 6;
+const ABSTRACT_DAYS = 30;
+const LOG_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Everything a Scan touches outside itself, so tests can run the real pipeline against fakes. */
 export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string; sleep: Sleep };
@@ -46,6 +49,7 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
   const catchUp = catchUpSince(store.arxivCoveredThrough(), localDate(startedAt));
   log(`Daily Scan ${scanId} started`);
   if (catchUp !== undefined) log(`Catching up on ${catchUp.days.map(localDate).join(", ")}`);
+  keepSmall(deps, startedAt, log);
 
   const settle = (result: ScanResult, picks: Parameters<Store["settleScan"]>[2] = []): ScanResult => {
     store.settleScan(scanId, { ...result, sources, at: clock() }, picks);
@@ -106,6 +110,15 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     }
     return settle({ outcome: "failed", reason: error.message });
   }
+}
+
+/** Deletes the abstracts of Papers never Picked after 30 days, the Keep lookback, and Scan logs after 90. */
+function keepSmall({ store, logDir }: ScanDeps, at: Date, log: ScanLog): void {
+  const daysBefore = (days: number) => new Date(at.getTime() - days * DAY_MS);
+  const pruned = store.pruneAbstracts(daysBefore(ABSTRACT_DAYS));
+  if (pruned > 0) log(`Deleted the abstracts of Papers never Picked and first seen before ${localDate(daysBefore(ABSTRACT_DAYS))}: ${pruned}`);
+  const logs = deleteScanLogsBefore(logDir, localDate(daysBefore(LOG_DAYS)));
+  if (logs > 0) log(`Deleted Scan logs from before ${localDate(daysBefore(LOG_DAYS))}: ${logs}`);
 }
 
 async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
