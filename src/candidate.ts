@@ -5,13 +5,17 @@ export const SOURCE_LABELS = {
   pmlr: "PMLR",
   jmlr: "JMLR",
   hf: "HF daily papers",
+  deepmind: "DeepMind",
+  anthropic: "Anthropic",
   openai: "OpenAI",
 } as const;
 
 export type SourceName = keyof typeof SOURCE_LABELS;
 
 /** Sources that point at Papers other sources fetch, adding only the lab Papers no other source can. */
-export type PointerName = "hf" | "openai";
+export type PointerName = "hf" | "deepmind" | "anthropic" | "openai";
+
+export type LabName = "deepmind" | "anthropic";
 
 export type PaperSourceName = Exclude<SourceName, PointerName>;
 
@@ -34,8 +38,11 @@ export type Candidate = {
 /** Text a pointer attaches to the Candidate it points at, found by any of its ids or by its title. */
 export type Signal = { text: string } & ({ ids: string[] } | { title: string });
 
-/** What a pointer found: Signals, plus the lab Papers it announces that have no arXiv id or DOI, as Candidates. */
-export type Pointers = { candidates: Candidate[]; signals: Signal[] };
+/**
+ * What a pointer found: Signals, plus the lab Papers it announces that have no arXiv id or DOI, as Candidates. `read`
+ * lists the lab posts it read, which later Scans skip.
+ */
+export type Pointers = { candidates: Candidate[]; signals: Signal[]; read?: string[] };
 
 /** An arXiv Paper's ids: its arXiv id without the version, and the DOI arXiv registers for it. */
 export function arxivIds(id: string): string[] {
@@ -62,6 +69,14 @@ export function doiIds(doi: string): string[] {
 export function arxivIdsInUrl(url: string): string[] {
   const id = url.match(/arxiv\.org\/(?:abs|pdf)\/([^?#]+?)(?:\.pdf)?$/)?.[1];
   return id === undefined ? [] : arxivIds(id);
+}
+
+/** The ids a link to a Paper names: its arXiv id, or a DOI in its path such as `https://dl.acm.org/doi/10.1145/…`. */
+export function linkIds(url: string): string[] {
+  const arxiv = arxivIdsInUrl(url);
+  if (arxiv.length > 0 || !URL.canParse(url)) return arxiv;
+  const doi = decodeURIComponent(new URL(url).pathname).match(/\/(10\.\d{4,9}\/.+)$/)?.[1];
+  return doi === undefined ? [] : doiIds(doi);
 }
 
 export function primaryId(candidate: Candidate): string {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Transformer Circuits Thread</title>
+  <link href="https://transformer-circuits.pub/"/>
+  <updated>2026-10-20T00:00:00Z</updated>
+  <id>https://transformer-circuits.pub/</id>
+  <entry>
+    <title>Tracing Context Use in Attention Heads</title>
+    <link href="https://transformer-circuits.pub/2026/context-heads/index.html"/>
+    <id>https://transformer-circuits.pub/2026/context-heads/index.html</id>
+    <published>2026-10-20T00:00:00Z</published>
+    <updated>2026-10-20T00:00:00Z</updated>
+    <summary type="html">We find heads that decide whether to answer from &lt;i&gt;context&lt;/i&gt; or from weights.</summary>
+  </entry>
+  <entry>
+    <title>Circuits Updates – August 2026</title>
+    <link href="https://transformer-circuits.pub/2026/august-update/index.html"/>
+    <id>https://transformer-circuits.pub/2026/august-update/index.html</id>
+    <published>2026-08-21T00:00:00Z</published>
+    <updated>2026-08-21T00:00:00Z</updated>
+    <summary>A collection of small updates.</summary>
+  </entry>
+</feed>

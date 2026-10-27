@@ -54,7 +54,7 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
 
     const [fetched, pointers] = await Promise.all([
       fetchSources(deps, watchedVenues(note, config.venues), sources, log),
-      fetchPointers({ fetch: deps.fetch, at: startedAt }, sources, log),
+      fetchPointers({ fetch: deps.fetch, store, at: startedAt }, sources, log),
     ]);
     const candidates = withSignals(dropKnown([...fetched, ...pointers.candidates], store, log), pointers.signals);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched`);

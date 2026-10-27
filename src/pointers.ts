@@ -2,22 +2,31 @@ import { type Candidate, type PointerName, type Pointers, type Signal, SOURCE_LA
 import { messageOf } from "./errors.ts";
 import type { Fetch } from "./http.ts";
 import type { ScanLog } from "./log.ts";
+import { fetchAnthropicPointers } from "./sources/anthropic.ts";
+import { fetchDeepMindPointers } from "./sources/deepmind.ts";
 import { fetchHfPointers } from "./sources/hf.ts";
 import { fetchOpenAiPointers } from "./sources/openai.ts";
-import type { SourceResults } from "./store.ts";
+import type { SourceResults, Store } from "./store.ts";
 
-export type PointerDeps = { fetch: Fetch; at: Date };
+export type PointerDeps = { fetch: Fetch; store: Pick<Store, "unreadPosts" | "markPostsRead">; at: Date };
 
-/** Every pointer's Signals and lab Papers. A failed pointer is recorded and skipped; it never fails the Scan. */
-export async function fetchPointers(deps: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
+/**
+ * Every pointer's Signals and lab Papers. A failed pointer is recorded and skipped, never failing the Scan, and the lab
+ * posts it read stay unread for the next Scan.
+ */
+export async function fetchPointers({ fetch, store, at }: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
+  const unread = (urls: string[]) => store.unreadPosts(urls);
   const pointers: Record<PointerName, () => Promise<Pointers>> = {
-    hf: () => fetchHfPointers(deps.fetch, deps.at),
-    openai: () => fetchOpenAiPointers(deps.fetch),
+    hf: () => fetchHfPointers(fetch, at),
+    deepmind: () => fetchDeepMindPointers(fetch, unread),
+    anthropic: () => fetchAnthropicPointers(fetch, unread, at),
+    openai: () => fetchOpenAiPointers(fetch),
   };
   const fetched = await Promise.all(
     (Object.entries(pointers) as [PointerName, () => Promise<Pointers>][]).map(async ([name, fetchPointer]): Promise<Pointers> => {
       try {
         const found = await fetchPointer();
+        store.markPostsRead(found.read ?? [], at);
         results[name] = { candidates: found.candidates.length };
         log(`${SOURCE_LABELS[name]}: ${found.signals.length} signals, ${found.candidates.length} Candidates`);
         return found;

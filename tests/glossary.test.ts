@@ -75,6 +75,17 @@ describe("the Glossary check", () => {
     ]);
   });
 
+  test("skips URLs in string literals, as it skips link targets in Markdown", () => {
+    // #given
+    const root = tree({ "src/sweep.ts": 'const FEED = "https://example.org/capture/";\nconst failed = `capture of https://example.org/ failed`;\n' });
+
+    // #when
+    const hits = glossaryHits(root);
+
+    // #then
+    expect(hits).toEqual([{ file: "src/sweep.ts", line: 2, term: "Capture" }]);
+  });
+
   test("skips GLOSSARY, ADRs, drafts, code in Markdown, wikilinks, and terms with a common other sense", () => {
     // #given
     const root = tree({
