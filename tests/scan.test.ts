@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
+import { PaperBotError } from "../src/errors.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
+import type { Sleep } from "../src/retry.ts";
 import { dailyScan } from "../src/scan.ts";
 import { openStore } from "../src/store.ts";
 import {
@@ -11,7 +13,11 @@ import {
   arxivFeedOf,
   arxivFetch,
   type FakeCommands,
+  failingFirst,
+  fakeClaude,
+  fakeCodex,
   fakeCommands,
+  fakeSleep,
   fixture,
   idsIn,
   INTERESTS,
@@ -34,13 +40,13 @@ function sandbox() {
   return { storePath: join(dir, "paper-bot.db"), logDir: join(dir, "logs") };
 }
 
-type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fetch?: Fetch; config?: Config; at?: Date };
+type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fetch?: Fetch; config?: Config; at?: Date; sleep?: Sleep };
 
 /** One Daily Scan against a store opened for it and closed after, as `paper-bot scan --daily` does. */
-async function scan({ commands, storePath, logDir, fetch = arxivFetch(), config = testConfig(), at = MONDAY }: ScanSetup) {
+async function scan({ commands, storePath, logDir, fetch = arxivFetch(), config = testConfig(), at = MONDAY, sleep = fakeSleep() }: ScanSetup) {
   const store = openStore(storePath);
   try {
-    return await dailyScan({ config, store, fetch, exec: commands.exec, clock: () => at, logDir });
+    return await dailyScan({ config, store, fetch, exec: commands.exec, clock: () => at, logDir, sleep });
   } finally {
     store.close();
   }
@@ -80,11 +86,11 @@ picks: 2
 
 1. **[MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring](https://arxiv.org/abs/2610.31679)** · *AI in higher education · Context management in AI*
    **Why it's here:** Why arxiv:2610.31679.
-   What arxiv:2610.31679 found.
+   What arxiv:2610.31679 found. *(from abstract)*
    - [ ] Keep ^pick-2610-31679
 2. **[Context or Knowledge: How LLMs Attribute Their Own Answers](https://arxiv.org/abs/2610.32109)** · *Context management in AI*
    **Why it's here:** Why arxiv:2610.32109.
-   What arxiv:2610.32109 found.
+   What arxiv:2610.32109 found. *(from abstract)*
    - [ ] Keep ^pick-2610-32109
 
 2 candidates · arXiv 2
@@ -296,7 +302,7 @@ picks: 2
     const secondBatchFails = fakeCommands({
       codex: (_argv, stdin) => {
         batches++;
-        return batches === 2 ? { exitCode: 1, stdout: "", stderr: "usage limit" } : { exitCode: 0, stdout: lowScores(stdin), stderr: "" };
+        return batches === 2 || batches === 3 ? { exitCode: 1, stdout: "", stderr: "usage limit" } : { exitCode: 0, stdout: lowScores(stdin), stderr: "" };
       },
     });
     await scan({ commands: secondBatchFails, storePath, logDir, config });
@@ -631,6 +637,367 @@ describe("a Daily Scan across sources", () => {
   });
 });
 
+describe("a Daily Briefing's content", () => {
+  const ARXIV_HTML = fixture("arxiv-html.html");
+  const PMLR = { "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") };
+  const context = ["Context management in AI"];
+  const claudePrompt = (commands: FakeCommands) => commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+  const failing = (prefix: string, fetch: Fetch): Fetch => async (url) => (url.startsWith(prefix) ? new Response("down", { status: 503 }) : fetch(url));
+
+  test("is the take, the ranked Picks, a collapsed Also considered list and the full footer", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({
+      rankings: {
+        "arxiv:2610.30001": { score: 9, interests: context },
+        "arxiv:2610.30002": { score: 8, interests: ["AI in higher education"] },
+        "arxiv:2610.30003": { score: 6 },
+        "arxiv:2610.30004": { score: 5 },
+        "arxiv:2610.30005": { score: 4 },
+        "arxiv:2610.30006": { score: 3 },
+        "arxiv:2610.30007": { score: 2 },
+        "arxiv:2610.30008": { score: 1 },
+        "url:https://proceedings.mlr.press/v306/ono26b.html": { score: 10, interests: context },
+      },
+    });
+    const fetch = failing(
+      "https://api.openalex.org/",
+      sourcesFetch({ "https://rss.arxiv.org/": arxivFeedOf(8), ...PMLR, "https://arxiv.org/html/2610.30001": ARXIV_HTML }),
+    );
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 2
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[Paper 1](https://arxiv.org/abs/2610.30001)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.30001.
+   What arxiv:2610.30001 found.
+   - [ ] Keep ^pick-2610-30001
+2. **[Paper 2](https://arxiv.org/abs/2610.30002)** · *AI in higher education*
+   **Why it's here:** Why arxiv:2610.30002.
+   What arxiv:2610.30002 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-30002
+
+<details><summary>Also considered (6)</summary>
+
+- [Sparse World Models](https://proceedings.mlr.press/v306/ono26b.html) · *no abstract*
+- [Paper 3](https://arxiv.org/abs/2610.30003)
+- [Paper 4](https://arxiv.org/abs/2610.30004)
+- [Paper 5](https://arxiv.org/abs/2610.30005)
+- [Paper 6](https://arxiv.org/abs/2610.30006)
+- [Paper 7](https://arxiv.org/abs/2610.30007)
+
+</details>
+
+10 candidates · arXiv 8 · PMLR 2
+
+OpenAlex failed: OpenAlex answered 503
+`);
+  });
+
+  test("fetches full text for the Picks only", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = arxivFetch();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://arxiv.org/"))).toEqual(["https://arxiv.org/html/2610.31679", "https://arxiv.org/html/2610.32109"]);
+  });
+
+  test("gives the writer each Pick's full text, and tells it which Picks have only an abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://arxiv.org/html/2610.32109": ARXIV_HTML });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const prompt = claudePrompt(commands);
+    expect({
+      withFullText: prompt.includes("full text: Context or Knowledge: How LLMs Attribute Their Own Answers Abstract We edit the KV cache & ask"),
+      fromAbstract: prompt.match(/^full text: none.*$/gm),
+    }).toEqual({ withFullText: true, fromAbstract: ["full text: none; write from the abstract"] });
+  });
+
+  test("reads an OpenAlex Pick's open-access PDF when arXiv has no HTML for it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "openalex:W1": { score: 9, interests: context } } });
+    const work = { id: "https://openalex.org/W1", title: "Tutors", abstract_inverted_index: { Text: [0] }, best_oa_location: { pdf_url: "https://example.edu/w1.pdf" } };
+    const pdf = readFileSync(join(import.meta.dir, "fixtures", "paper.pdf"));
+    const served = sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [work] }) });
+    const fetch = async (url: string) => (url === "https://example.edu/w1.pdf" ? new Response(pdf) : served(url));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(claudePrompt(commands)).toContain("full text: Full text of the Paper.");
+  });
+
+  test("still writes a Pick, from its abstract, when reading its full text fails, and logs why", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = async (url: string) => {
+      if (url.startsWith("https://arxiv.org/html/")) throw new Error("connection reset");
+      return arxivFetch()(url);
+    };
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const log = readFileSync(join(logDir, readdirSync(logDir)[0] ?? ""), "utf8");
+    expect({ outcome: result.outcome, logged: log.includes("no full text for arxiv:2610.31679: connection reset") }).toEqual({ outcome: "written", logged: true });
+  });
+
+  test("names each failed source on its own footer line, before the Interests Note issues", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents carry context.\n\n- Venues: EMNLP\n";
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+    const fetch = failing("https://www.jmlr.org/", failing("https://api.ies.ed.gov/", arxivFetch()));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.split("\n\n").slice(-4)).toEqual([
+      "2 candidates · arXiv 2",
+      "ERIC failed: ERIC answered 503",
+      "JMLR failed: JMLR answered 503",
+      'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"\n',
+    ]);
+  });
+
+  test("leaves out Also considered when every ranked Candidate is a Pick", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).not.toContain("Also considered");
+  });
+});
+
+describe("a Daily Scan that meets failures", () => {
+  test("retries a fetch that fails once after a short wait, and counts that source", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const sleep = fakeSleep();
+    const working = arxivFetch();
+    let arxivTries = 0;
+    const fetch = async (url: string) => (url.startsWith("https://rss.arxiv.org/") && ++arxivTries === 1 ? new Response("busy", { status: 503 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, arxiv: stored(storePath).scans[0]?.sources?.arxiv, waits: sleep.waits }).toEqual({
+      outcome: "written",
+      arxiv: { candidates: 2 },
+      waits: [30_000],
+    });
+  });
+
+  test("retries a ranking call that hits the usage limit once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const commands = fakeCommands({ codex: failingFirst({ exitCode: 1, stdout: "", stderr: "You've hit your usage limit" }, fakeCodex(PICKED)) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, codex: codexCalls(commands).length, waits: sleep.waits }).toEqual({ outcome: "written", codex: 2, waits: [30_000] });
+  });
+
+  test("ranks at most the cap of batches; the next Scan ranks the overflow first, from its stored abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 1 } });
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => stdin.slice(stdin.search(/^id: /m)).split("\n").slice(0, 3))).toEqual([
+      [
+        "id: arxiv:2610.31679",
+        "title: MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring",
+        "abstract: Five open-weight tutors over 5,000+ simulated dialogues; how you score them changes who looks good.",
+      ],
+    ]);
+  });
+
+  test("puts a batch that fails both tries into pending, and the next Scan ranks it first", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 20 } });
+    const secondBatchFails = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.31679") ? { exitCode: 1, stdout: "", stderr: "usage limit" } : fakeCodex()(argv, stdin)) });
+    await scan({ commands: secondBatchFails, storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([["arxiv:2610.31679"], ["arxiv:2610.30001"]]);
+  });
+
+  describe("with a failed source and a failed ranking batch", () => {
+    async function degradedScan() {
+      const { storePath, logDir } = sandbox();
+      const usageLimit = { exitCode: 1, stdout: "", stderr: "usage limit" };
+      const commands = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.32109") ? usageLimit : fakeCodex(PICKED)(argv, stdin)) });
+      const working = arxivFetch();
+      const fetch = async (url: string) => (url.startsWith("https://api.openalex.org/") ? new Response("busy", { status: 429 }) : working(url));
+      const result = await scan({ commands, storePath, logDir, fetch, config: testConfig({ batch: { size: 1, cap: 20 } }) });
+      return { result, commands, storePath };
+    }
+    const failures = [
+      "OpenAlex failed: OpenAlex answered 429",
+      "Ranking batch 1 of 2 failed, its Candidates wait for the next Scan: codex exec failed (exit 1): usage limit",
+    ];
+
+    test("writes a degraded Briefing whose footer names what failed", async () => {
+      // #given
+      const { commands } = await degradedScan();
+
+      // #when
+      const footer = commands.vault.get(BRIEFING)?.trim().split("\n\n").slice(-3);
+
+      // #then
+      expect(footer).toEqual(["1 candidates · arXiv 1", ...failures]);
+    });
+
+    test("records the Scan as written, with what failed as its reason", async () => {
+      // #given
+      const { storePath } = await degradedScan();
+
+      // #when
+      const [row] = stored(storePath).scans;
+
+      // #then
+      expect({ outcome: row?.outcome, reason: row?.reason }).toEqual({ outcome: "written", reason: `degraded: ${failures.join("; ")}` });
+    });
+  });
+
+  test("fails without fetching or calling an LLM when brain-dump can't be started", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const exec: typeof commands.exec = async (argv, options) => {
+      if (argv[0] === "brain-dump") throw new PaperBotError("cannot start brain-dump: ENOENT");
+      return commands.exec(argv, options);
+    };
+    const fetch = arxivFetch();
+
+    // #when
+    const result = await scan({ commands: { ...commands, exec }, storePath, logDir, fetch });
+
+    // #then
+    expect({ result, fetched: fetch.urls, commands: commandNames(commands) }).toEqual({
+      result: { outcome: "failed", reason: "cannot start brain-dump: ENOENT" },
+      fetched: [],
+      commands: [],
+    });
+  });
+
+  describe("re-run after its Briefing write failed", () => {
+    async function failedThenRerun() {
+      const { storePath, logDir } = sandbox();
+      const writeFails = fakeCommands({ rankings: PICKED, claude: () => ({ exitCode: 1, stdout: "", stderr: "You've hit your session limit" }) });
+      await scan({ commands: writeFails, storePath, logDir });
+      const rerun = fakeCommands({ rankings: PICKED });
+      const result = await scan({ commands: rerun, storePath, logDir });
+      return { storePath, logDir, rerun, result };
+    }
+
+    test("writes the Briefing from the saved scores without ranking again", async () => {
+      // #given
+      const { rerun, result, storePath } = await failedThenRerun();
+
+      // #when
+      const picks = stored(storePath).picks.map((pick) => pick.paper);
+
+      // #then
+      expect({ result, codex: codexCalls(rerun).length, picks }).toEqual({
+        result: { outcome: "written", briefing: BRIEFING },
+        codex: 0,
+        picks: ["arxiv:2610.31679", "arxiv:2610.32109"],
+      });
+    });
+
+    test("is safe to repeat: a third run writes nothing and records no Picks twice", async () => {
+      // #given
+      const { storePath, logDir, rerun } = await failedThenRerun();
+      const third = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(rerun.vault) });
+
+      // #when
+      const result = await scan({ commands: third, storePath, logDir });
+
+      // #then
+      expect({ result, written: third.calls.some(({ argv }) => argv[1] === "write-briefing"), picks: stored(storePath).picks.length }).toEqual({
+        result: { outcome: "skipped", reason: "no new Candidates" },
+        written: false,
+        picks: 2,
+      });
+    });
+  });
+
+  test("logs each LLM call's exit code and duration", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED, codex: failingFirst({ exitCode: null, stdout: "", stderr: "" }, fakeCodex(PICKED)) });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    const calls = lines.flatMap((line) => line.match(/(codex exec|claude -p) (exited \S+|timed out) after \d+ ms$/)?.slice(1, 3).join(" ") ?? []);
+    expect(calls).toEqual(["codex exec timed out", "codex exec exited 0", "claude -p exited 0"]);
+  });
+
+  test("retries a writing call that reports is_error once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const notLoggedIn = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" });
+    const commands = fakeCommands({ rankings: PICKED, claude: failingFirst({ exitCode: 0, stdout: notLoggedIn, stderr: "" }, fakeClaude) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, waits: sleep.waits }).toEqual({ outcome: "written", waits: [30_000] });
+  });
+});
 describe("a Daily Scan with pointers", () => {
   const candidateIn = (prompt: string | undefined, id: string): string | undefined => prompt?.split("\n\n").find((block) => block.startsWith(`id: ${id}\n`));
   const withHf = () => sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json") });

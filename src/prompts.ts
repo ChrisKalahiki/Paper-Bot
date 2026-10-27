@@ -46,6 +46,9 @@ ${candidates}
 
 export type PickInput = { candidate: Candidate; ranking: Ranking };
 
+/** A Pick as the writer gets it: `fullText` is undefined when the Pick is written from its abstract. */
+export type PickToWrite = PickInput & { fullText: string | undefined };
+
 export type KeepInput = { paper: string; title: string; authors: string[]; url: string; abstract: string; why: string; summary: string };
 
 export function keepPrompt(pick: KeepInput): string {
@@ -67,11 +70,11 @@ Use only what is given above. Write no Todos or Decisions.
 `;
 }
 
-export function dailyPrompt(picks: PickInput[], interests: Interest[], at: Date): string {
+export function dailyPrompt(picks: PickToWrite[], interests: Interest[], at: Date): string {
   const listed = picks
     .map(
-      ({ candidate, ranking }) =>
-        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\ninterests: ${ranking.interests.join(", ") || (ranking.wildcard ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract}`,
+      ({ candidate, ranking, fullText }) =>
+        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\ninterests: ${ranking.interests.join(", ") || (ranking.wildcard ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract}\nfull text: ${fullText ?? "none; write from the abstract"}`,
     )
     .join("\n\n");
   return `You write the prose of Chris's Daily Briefing for ${longDate(at)}. Code lays out the note; you return only the prose, as JSON.
@@ -84,7 +87,7 @@ ${listed}
 
 Return:
 - take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them;
-- picks: one entry per Pick, with its id exactly as given, a why line of at most 30 words on why it matters to Chris, and a summary of one or two sentences on what the Paper did and found.
+- picks: one entry per Pick, with its id exactly as given, a why line of at most 30 words on why it matters to Chris, and a summary of one or two sentences on what the Paper did and found, drawn from its full text where it has one.
 
 Use only what is given above. Include no URLs, and name no Paper that is not listed.
 `;

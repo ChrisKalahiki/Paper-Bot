@@ -1,10 +1,11 @@
 import { type BrainDump, brainDumpCli } from "./brain-dump.ts";
 import { dailyBriefingPath, renderDailyBriefing } from "./briefing.ts";
-import { type Candidate, mergeCandidates, type PaperSourceName, primaryId, type Ranking, SOURCE_LABELS } from "./candidate.ts";
+import { type Candidate, mergeCandidates, type PaperSourceName, primaryId, type Ranking, SOURCE_LABELS, type SourceName } from "./candidate.ts";
 import { type Clock, localDate } from "./clock.ts";
-import type { Exec } from "./command.ts";
+import { type Exec, loggingExec } from "./command.ts";
 import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
+import { readFullTexts } from "./full-text.ts";
 import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
@@ -12,6 +13,7 @@ import { openScanLog, type ScanLog } from "./log.ts";
 import { fetchPointers, withSignals } from "./pointers.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
+import { retryingFetch, retryOnce, type Sleep } from "./retry.ts";
 import { fetchArxivCandidates } from "./sources/arxiv.ts";
 import { fetchEricCandidates } from "./sources/eric.ts";
 import { fetchJmlrCandidates } from "./sources/jmlr.ts";
@@ -21,9 +23,10 @@ import type { Outcome, SourceResults, Store } from "./store.ts";
 import { claudeWriter } from "./write.ts";
 
 const MAX_PICKS = 5;
+const ALSO_CONSIDERED = 6;
 
 /** Everything a Scan touches outside itself, so tests can run the real pipeline against fakes. */
-export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string };
+export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string; sleep: Sleep };
 
 export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string };
 
@@ -31,12 +34,14 @@ export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string 
  * Reads the Interests, fetches and ranks today's Candidates, and writes a Daily Briefing of the Picks.
  * The Scan is skipped when nothing clears the bar, and failed when it cannot settle its Briefing.
  */
-export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
-  const { config, store, clock } = deps;
-  const log = openScanLog(deps.logDir, "daily", clock);
+export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
+  const { config, store, clock } = scanDeps;
+  const log = openScanLog(scanDeps.logDir, "daily", clock);
+  const deps = { ...scanDeps, exec: loggingExec(scanDeps.exec, log) };
   const startedAt = clock();
   const scanId = store.startScan("daily", localDate(startedAt), startedAt);
   const sources: SourceResults = {};
+  const rankingFailures: string[] = [];
   log(`Daily Scan ${scanId} started`);
 
   const settle = (result: ScanResult, picks: Parameters<Store["settleScan"]>[2] = []): ScanResult => {
@@ -54,34 +59,41 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
 
     const [fetched, pointers] = await Promise.all([
       fetchSources(deps, watchedVenues(note, config.venues), sources, log),
-      fetchPointers({ fetch: deps.fetch, store, at: startedAt }, sources, log),
+      fetchPointers({ fetch: retryingFetch(deps.fetch, deps.sleep, log), store, at: startedAt }, sources, log),
     ]);
-    const candidates = withSignals(dropKnown([...fetched, ...pointers.candidates], store, log), pointers.signals);
-    log(`${candidates.length} new Candidates of ${fetched.length} fetched`);
-    if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
+    const pending = store.pending();
+    const candidates = withSignals(dropKnown([...pending, ...fetched, ...pointers.candidates], store, log), pointers.signals);
+    log(`${candidates.length} new Candidates of ${fetched.length + pointers.candidates.length} fetched and ${pending.length} pending`);
 
-    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, log);
+    if (candidates.length > 0) await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, rankingFailures, log);
+    const ranked = store.unsettledRankings();
+    if (ranked.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
-    const prose = await claudeWriter(deps.exec, config.models.write)(picks, note.interests, startedAt);
-    const rendered = picks.map(({ candidate, ranking }) => {
+    const toWrite = await readFullTexts(deps.fetch, picks, log);
+    const write = claudeWriter(deps.exec, config.models.write);
+    const prose = await retryOnce("Writing the Daily Briefing", () => write(toWrite, note.interests, startedAt), deps.sleep, log);
+    const rendered = toWrite.map(({ candidate, ranking, fullText }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
-      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written };
+      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written, fromAbstract: fullText === undefined };
     });
     const markdown = renderDailyBriefing({
       at: startedAt,
       take: prose.take,
       picks: rendered,
+      alsoConsidered: alsoConsidered(ranked, picks),
       candidates: countBySource(ranked),
+      failedSources: failedSources(sources),
+      rankingFailures,
       issues: note.issues,
       keepIssues,
     });
     const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
     log(`wrote ${briefing}`);
     return settle(
-      { outcome: "written", briefing },
+      { outcome: "written", briefing, ...degraded(sources, rankingFailures) },
       rendered.map((pick, i) => ({ candidate: pick.candidate, rank: i + 1, why: pick.why, summary: pick.summary })),
     );
   } catch (error) {
@@ -106,7 +118,8 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
 
 /** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
 async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
-  const { fetch, config } = deps;
+  const { config } = deps;
+  const fetch = retryingFetch(deps.fetch, deps.sleep, log);
   const at = deps.clock();
   const fetchers: Record<PaperSourceName, () => Promise<Candidate[]>> = {
     arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
@@ -151,33 +164,51 @@ function dropKnown(fetched: Candidate[], store: Store, log: ScanLog): Candidate[
 
 type Ranked = PickInput;
 
-/** Ranks in batches, saving each batch's scores as it finishes. A failed batch is logged; the Scan fails only when every batch fails. */
-async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNote, deps: ScanDeps, scanId: number, log: ScanLog): Promise<Ranked[]> {
-  const ranked: Ranked[] = [];
-  const size = deps.config.batch.size;
-  let failures = 0;
-  const batches = Math.ceil(candidates.length / size);
-  for (let start = 0; start < candidates.length; start += size) {
-    const batch = candidates.slice(start, start + size);
-    const label = `ranking batch ${start / size + 1} of ${batches}`;
+/**
+ * Ranks in batches, at most `batch.cap` of them, saving each batch's scores as it finishes. Candidates over the cap and
+ * those in a failed batch go to pending, for the next Scan to rank first. The Scan fails only when every batch fails.
+ */
+async function rankAll(
+  rank: Ranker,
+  candidates: Candidate[],
+  note: InterestsNote,
+  deps: ScanDeps,
+  scanId: number,
+  failures: string[],
+  log: ScanLog,
+): Promise<void> {
+  const { store, clock } = deps;
+  const { size, cap } = deps.config.batch;
+  const batches: Candidate[][] = [];
+  for (let start = 0; start < Math.min(candidates.length, size * cap); start += size) batches.push(candidates.slice(start, start + size));
+  const overflow = candidates.slice(size * cap);
+  if (overflow.length > 0) {
+    store.addPending(overflow, clock());
+    const over = `${overflow.length} Candidates over the cap of ${cap} ranking batches wait for the next Scan`;
+    failures.push(over);
+    log(over);
+  }
+  let failed = 0;
+  for (const [i, batch] of batches.entries()) {
+    const label = `Ranking batch ${i + 1} of ${batches.length}`;
     const began = Date.now();
     try {
-      const rankings = await rank(batch, note);
+      const rankings = await retryOnce(label, () => rank(batch, note), deps.sleep, log);
       const scored = batch.flatMap((candidate) => {
         const ranking: Ranking | undefined = rankings.get(primaryId(candidate));
         return ranking === undefined ? [] : [{ candidate, ranking }];
       });
-      deps.store.saveRankings(scanId, scored, deps.clock());
-      ranked.push(...scored);
+      store.saveRankings(scanId, scored, clock());
       log(`${label}: ${scored.length} of ${batch.length} scored in ${Date.now() - began} ms`);
     } catch (error) {
       if (!(error instanceof PaperBotError)) throw error;
-      failures++;
-      log(`${label} failed after ${Date.now() - began} ms: ${error.message}`);
+      failed++;
+      store.addPending(batch, clock());
+      failures.push(`${label} failed, its Candidates wait for the next Scan: ${error.message}`);
+      log(`${label} failed after ${Date.now() - began} ms, its Candidates wait for the next Scan: ${error.message}`);
     }
   }
-  if (failures === batches) throw new PaperBotError("every ranking batch failed");
-  return ranked;
+  if (failed === batches.length) throw new PaperBotError("every ranking batch failed");
 }
 
 /**
@@ -195,6 +226,33 @@ function choosePicks(ranked: Ranked[], bars: Config["bars"], wildcardCap: number
     ...best((ranking) => ranking.score >= bars.pick && ranking.interests.length > 0, MAX_PICKS),
     ...best((ranking) => ranking.score >= bars.wildcard && ranking.interests.length === 0 && ranking.wildcard, wildcardCap),
   ];
+}
+
+/** The best ranked Candidates that are not Picks, Candidates with no abstract among them. Each best first; ties keep fetch order. */
+function alsoConsidered(ranked: Ranked[], picks: Ranked[]): Candidate[] {
+  return ranked
+    .filter((entry) => !picks.includes(entry))
+    .sort((a, b) => b.ranking.score - a.ranking.score)
+    .slice(0, ALSO_CONSIDERED)
+    .map(({ candidate }) => candidate);
+}
+
+/** A written Scan's reason when it lost sources or ranking batches: what failed. */
+function degraded(sources: SourceResults, rankingFailures: string[]): { reason?: string } {
+  const failures = [
+    ...(Object.entries(failedSources(sources)) as [SourceName, string][]).map(([source, error]) => `${SOURCE_LABELS[source]} failed: ${error}`),
+    ...rankingFailures,
+  ];
+  return failures.length === 0 ? {} : { reason: `degraded: ${failures.join("; ")}` };
+}
+
+function failedSources(sources: SourceResults): Partial<Record<SourceName, string>> {
+  const failed: Partial<Record<SourceName, string>> = {};
+  for (const source of Object.keys(SOURCE_LABELS) as SourceName[]) {
+    const result = sources[source];
+    if (result !== undefined && "error" in result) failed[source] = result.error;
+  }
+  return failed;
 }
 
 function countBySource(ranked: Ranked[]): Partial<Record<Candidate["source"], number>> {

@@ -31,6 +31,8 @@ export type Candidate = {
   authors?: string[];
   url: string;
   abstract: string;
+  /** An open-access PDF of the Paper, when OpenAlex knows one. */
+  pdf?: string;
   /** What else points at it, such as "on HF daily papers", given to the ranker as text. */
   signals?: string[];
 };
@@ -90,7 +92,8 @@ export type Ranking = { interests: string[]; score: number; why: string; wildcar
 
 /**
  * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids and signals (and an
- * abstract, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
+ * abstract or PDF, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned
+ * as a conflict.
  */
 export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[]; conflicts: Candidate[] } {
   const merged: Candidate[] = [];
@@ -107,6 +110,7 @@ export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[];
     if (match === undefined) merged.push(kept);
     else {
       if (kept.abstract === "") kept.abstract = candidate.abstract;
+      kept.pdf ??= candidate.pdf;
       if (candidate.signals !== undefined) kept.signals = [...new Set([...(kept.signals ?? []), ...candidate.signals])];
     }
     for (const id of candidate.ids) {
