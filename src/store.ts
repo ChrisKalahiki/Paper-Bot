@@ -189,9 +189,9 @@ export type Store = {
   close(): void;
 };
 
-/** `readonly` opens an existing store without creating, migrating or writing to it. */
-export function openStore(path: string, { readonly = false } = {}): Store {
-  const db = readonly ? openReadonly(path) : openWritable(path);
+/** `existing` opens only a store that exists, never creating one; it upgrades an older store's schema but writes no data. */
+export function openStore(path: string, { existing = false } = {}): Store {
+  const db = existing ? openExisting(path) : openWritable(path);
 
   const findId = db.query<{ paper_id: number }, [string]>("SELECT paper_id FROM paper_ids WHERE id = ?");
   const paperOf = (candidate: Candidate): number | undefined => findId.get(primaryId(candidate))?.paper_id;
@@ -406,27 +406,32 @@ function openWritable(path: string): Database {
   return db;
 }
 
-function openReadonly(path: string): Database {
-  let db: Database;
+function openExisting(path: string): Database {
+  let reader: Database;
   let version: number;
   try {
-    db = new Database(path, { readonly: true, strict: true });
-    version = storeVersion(db);
+    reader = new Database(path, { readonly: true, strict: true });
+    version = storeVersion(reader);
   } catch (error) {
     throw new PaperBotError(`cannot read the store at ${path}: ${messageOf(error)}`);
   }
-  if (version !== MIGRATIONS.length) {
-    db.close();
-    throw new PaperBotError(`${path} is at store version ${version}, not ${MIGRATIONS.length}; a Scan upgrades it`);
-  }
+  if (version === MIGRATIONS.length) return reader;
+  reader.close();
+  if (version > MIGRATIONS.length) throw newerStore(path, version);
+  const db = new Database(path, { readwrite: true, create: false, strict: true });
+  db.run("PRAGMA foreign_keys = ON");
+  migrate(db, path);
   return db;
 }
 
 const storeVersion = (db: Database): number => db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
 
+const newerStore = (path: string, version: number): PaperBotError =>
+  new PaperBotError(`${path} was written by a newer paper-bot (store version ${version})`);
+
 function migrate(db: Database, path: string): void {
   const version = storeVersion(db);
-  if (version > MIGRATIONS.length) throw new PaperBotError(`${path} was written by a newer paper-bot (store version ${version})`);
+  if (version > MIGRATIONS.length) throw newerStore(path, version);
   MIGRATIONS.slice(version).forEach((migration, i) => {
     db.transaction(() => {
       db.run(migration);

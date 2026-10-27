@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { existsSync } from "node:fs";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { lastWeek, systemClock } from "./clock.ts";
 import { spawnExec } from "./command.ts";
@@ -53,14 +54,15 @@ async function scan(scans: (deps: ScanDeps) => Promise<SettledScan[]>): Promise<
   }
 }
 
-/** Prints the latest Scans, failing Keeps and this week's Picks as the JSON homeros polls, reading the store read-only. */
+/** Prints the latest Scans, failing Keeps and this week's Picks as the JSON homeros polls. It writes no data and creates no store. */
 function picks(): number {
-  const store = openStore(paths(process.env).store, { readonly: true });
+  const path = paths(process.env).store;
+  const store = existsSync(path) ? openStore(path, { existing: true }) : null;
   try {
     process.stdout.write(`${JSON.stringify(picksReport(store, systemClock()))}\n`);
     return 0;
   } finally {
-    store.close();
+    store?.close();
   }
 }
 

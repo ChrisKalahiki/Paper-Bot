@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -32,7 +33,7 @@ function sandbox() {
 type Sandbox = ReturnType<typeof sandbox>;
 
 function report({ storePath }: Sandbox, at: Date) {
-  const store = openStore(storePath, { readonly: true });
+  const store = openStore(storePath, { existing: true });
   try {
     return picksReport(store, at);
   } finally {
@@ -279,7 +280,7 @@ describe("the paper-bot picks command", () => {
     expect(json).toEqual({ scans: { daily: null, weekly: null }, keeps: { failing: [] }, week: expect.stringMatching(/^\d{4}-W\d{2}$/), picks: [] });
   });
 
-  test("exits 1 naming the store when there is none, and creates none", () => {
+  test("before the first Scan, with no store yet, prints no Scans, failing Keeps or Picks, and creates no store", () => {
     // #given
     const box = sandbox();
 
@@ -287,10 +288,33 @@ describe("the paper-bot picks command", () => {
     const result = paperBot(box, ["picks", "--json"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr.startsWith(`paper-bot: cannot read the store at ${box.storePath}: `), created: existsSync(box.storePath) }).toEqual({
-      exitCode: 1,
-      stderr: true,
+    expect({ exitCode: result.exitCode, json: JSON.parse(result.stdout), created: existsSync(box.storePath) }).toEqual({
+      exitCode: 0,
+      json: { scans: { daily: null, weekly: null }, keeps: { failing: [] }, week: expect.stringMatching(/^\d{4}-W\d{2}$/), picks: [] },
       created: false,
+    });
+  });
+
+  test("upgrades a store an older paper-bot wrote, keeping its Scans", async () => {
+    // #given
+    const box = sandbox();
+    await daily(box, fakeCommands({ rankings: RANKINGS }), MONDAY);
+    const db = new Database(box.storePath);
+    db.run("DROP TABLE lab_posts");
+    db.run("PRAGMA user_version = 3");
+    db.close();
+
+    // #when
+    const result = paperBot(box, ["picks", "--json"]);
+
+    // #then
+    const upgraded = new Database(box.storePath, { readonly: true });
+    const posts = upgraded.query<{ n: number }, []>("SELECT count(*) AS n FROM lab_posts").get()?.n;
+    upgraded.close();
+    expect({ exitCode: result.exitCode, daily: JSON.parse(result.stdout).scans.daily?.outcome, posts }).toEqual({
+      exitCode: 0,
+      daily: "briefing",
+      posts: 0,
     });
   });
 

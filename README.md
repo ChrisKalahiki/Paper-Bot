@@ -31,7 +31,7 @@ It exits 1 when the Scan failed. Picks are chosen from the scores saved since th
 
 ## Picks for homeros
 
-`paper-bot picks --json` prints what homeros's paper-bot Source polls (the contract is in ChrisKalahiki/homeros#77). It opens the store read-only, needs no config, and exits 1 only when it can't read the store.
+`paper-bot picks --json` prints what homeros's paper-bot Source polls (the contract is in ChrisKalahiki/homeros#77). It needs no config and writes no data: before the first Scan it prints no Scans or Picks and creates no store, and after an upgrade it brings an older store's schema up to date. It exits 1 only when it can't read the store.
 
 ```json
 { "scans": { "daily":  { "at": "…", "date": "2026-10-26", "outcome": "briefing | skipped | failed", "reason": "…", "sources": [{ "name": "arxiv", "ok": true, "error": null }] },

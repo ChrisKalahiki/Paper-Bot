@@ -39,9 +39,10 @@ export type PicksReport = {
 
 const OUTCOMES: Record<Outcome, ReportedOutcome> = { written: "briefing", skipped: "skipped", failed: "failed" };
 
-/** The latest Scans, failing Keeps and the Picks of the ISO week `now` falls in. */
-export function picksReport(store: Store, now: Date): PicksReport {
+/** The latest Scans, failing Keeps and the Picks of the ISO week `now` falls in; none of them while there is no `store` yet. */
+export function picksReport(store: Store | null, now: Date): PicksReport {
   const week = isoWeek(now);
+  if (store === null) return { scans: { daily: null, weekly: null }, keeps: { failing: [] }, week: week.name, picks: [] };
   const picks = store
     .weekPicks(localDate(week.monday), localDate(week.sunday))
     .map(({ paper, title, url, date, interests, wildcard, why, kept, keptAt, briefing }) => ({ id: paper, title, url, date, interests, wildcard, why, kept, keptAt, briefing }));
