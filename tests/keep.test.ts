@@ -5,7 +5,7 @@ import { INTERESTS_NOTE } from "../src/interests.ts";
 import { tickedKeeps } from "../src/keep.ts";
 import { dailyScan } from "../src/scan.ts";
 import { openStore } from "../src/store.ts";
-import { arxivFeedOf, arxivFetch, type FakeCommands, type FakeRanking, fakeCommands, INTERESTS, MONDAY, tempDir, testConfig } from "./harness.ts";
+import { arxivFeedOf, arxivFetch, type FakeCommands, type FakeRanking, fakeCommands, fakeSleep, INTERESTS, MONDAY, tempDir, testConfig } from "./harness.ts";
 
 const BRIEFING = "Research/Briefings/Daily/2026-10-26 Daily Briefing.md";
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
@@ -30,7 +30,7 @@ type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fe
 async function scan({ commands, storePath, logDir, fetch = arxivFetch(), at }: ScanSetup) {
   const store = openStore(storePath);
   try {
-    return await dailyScan({ config: testConfig(), store, fetch, exec: commands.exec, clock: () => at, logDir });
+    return await dailyScan({ config: testConfig(), store, fetch, exec: commands.exec, clock: () => at, logDir, sleep: fakeSleep() });
   } finally {
     store.close();
   }

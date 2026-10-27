@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
+import type { Sleep } from "../src/retry.ts";
 import { dailyScan } from "../src/scan.ts";
 import { openStore } from "../src/store.ts";
 import {
@@ -11,7 +12,11 @@ import {
   arxivFeedOf,
   arxivFetch,
   type FakeCommands,
+  failingFirst,
+  fakeClaude,
+  fakeCodex,
   fakeCommands,
+  fakeSleep,
   fixture,
   idsIn,
   INTERESTS,
@@ -34,13 +39,13 @@ function sandbox() {
   return { storePath: join(dir, "paper-bot.db"), logDir: join(dir, "logs") };
 }
 
-type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fetch?: Fetch; config?: Config; at?: Date };
+type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fetch?: Fetch; config?: Config; at?: Date; sleep?: Sleep };
 
 /** One Daily Scan against a store opened for it and closed after, as `paper-bot scan --daily` does. */
-async function scan({ commands, storePath, logDir, fetch = arxivFetch(), config = testConfig(), at = MONDAY }: ScanSetup) {
+async function scan({ commands, storePath, logDir, fetch = arxivFetch(), config = testConfig(), at = MONDAY, sleep = fakeSleep() }: ScanSetup) {
   const store = openStore(storePath);
   try {
-    return await dailyScan({ config, store, fetch, exec: commands.exec, clock: () => at, logDir });
+    return await dailyScan({ config, store, fetch, exec: commands.exec, clock: () => at, logDir, sleep });
   } finally {
     store.close();
   }
@@ -282,7 +287,7 @@ picks: 2
     const secondBatchFails = fakeCommands({
       codex: (_argv, stdin) => {
         batches++;
-        return batches === 2 ? { exitCode: 1, stdout: "", stderr: "usage limit" } : { exitCode: 0, stdout: lowScores(stdin), stderr: "" };
+        return batches === 2 || batches === 3 ? { exitCode: 1, stdout: "", stderr: "usage limit" } : { exitCode: 0, stdout: lowScores(stdin), stderr: "" };
       },
     });
     await scan({ commands: secondBatchFails, storePath, logDir, config });
@@ -614,5 +619,54 @@ describe("a Daily Scan across sources", () => {
     // #then
     const filters = fetch.urls.filter((url) => url.startsWith("https://api.openalex.org/")).map((url) => new URL(url).searchParams.get("filter"));
     expect(filters).toContain("primary_location.source.id:S4363608652|S4363608991,publication_year:2026|2025");
+  });
+});
+
+describe("a Daily Scan that meets failures", () => {
+  test("retries a fetch that fails once after a short wait, and counts that source", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const sleep = fakeSleep();
+    const working = arxivFetch();
+    let arxivTries = 0;
+    const fetch = async (url: string) => (url.startsWith("https://rss.arxiv.org/") && ++arxivTries === 1 ? new Response("busy", { status: 503 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, arxiv: stored(storePath).scans[0]?.sources?.arxiv, waits: sleep.waits }).toEqual({
+      outcome: "written",
+      arxiv: { candidates: 2 },
+      waits: [30_000],
+    });
+  });
+
+  test("retries a ranking call that hits the usage limit once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const commands = fakeCommands({ codex: failingFirst({ exitCode: 1, stdout: "", stderr: "You've hit your usage limit" }, fakeCodex(PICKED)) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, codex: codexCalls(commands).length, waits: sleep.waits }).toEqual({ outcome: "written", codex: 2, waits: [30_000] });
+  });
+
+  test("retries a writing call that reports is_error once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const notLoggedIn = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" });
+    const commands = fakeCommands({ rankings: PICKED, claude: failingFirst({ exitCode: 0, stdout: notLoggedIn, stderr: "" }, fakeClaude) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, waits: sleep.waits }).toEqual({ outcome: "written", waits: [30_000] });
   });
 });

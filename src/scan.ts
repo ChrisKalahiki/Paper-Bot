@@ -11,6 +11,7 @@ import { keepTicked } from "./keep.ts";
 import { openScanLog, type ScanLog } from "./log.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
+import { retryingFetch, retryOnce, type Sleep } from "./retry.ts";
 import { fetchArxivCandidates } from "./sources/arxiv.ts";
 import { fetchEricCandidates } from "./sources/eric.ts";
 import { fetchJmlrCandidates } from "./sources/jmlr.ts";
@@ -22,7 +23,7 @@ import { claudeWriter } from "./write.ts";
 const MAX_PICKS = 5;
 
 /** Everything a Scan touches outside itself, so tests can run the real pipeline against fakes. */
-export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string };
+export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string; sleep: Sleep };
 
 export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string };
 
@@ -60,7 +61,8 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
-    const prose = await claudeWriter(deps.exec, config.models.write)(picks, note.interests, startedAt);
+    const write = claudeWriter(deps.exec, config.models.write);
+    const prose = await retryOnce("Writing the Daily Briefing", () => write(picks, note.interests, startedAt), deps.sleep, log);
     const rendered = picks.map(({ candidate, ranking }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
@@ -102,7 +104,8 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
 
 /** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
 async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
-  const { fetch, config } = deps;
+  const { config } = deps;
+  const fetch = retryingFetch(deps.fetch, deps.sleep, log);
   const at = deps.clock();
   const fetchers: Record<SourceName, () => Promise<Candidate[]>> = {
     arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
@@ -158,7 +161,7 @@ async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNot
     const label = `ranking batch ${start / size + 1} of ${batches}`;
     const began = Date.now();
     try {
-      const rankings = await rank(batch, note);
+      const rankings = await retryOnce(label, () => rank(batch, note), deps.sleep, log);
       const scored = batch.flatMap((candidate) => {
         const ranking: Ranking | undefined = rankings.get(primaryId(candidate));
         return ranking === undefined ? [] : [{ candidate, ranking }];

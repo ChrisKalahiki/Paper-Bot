@@ -5,6 +5,7 @@ import { PaperBotError } from "./errors.ts";
 import { WILDCARDS_HEADING } from "./interests.ts";
 import type { ScanLog } from "./log.ts";
 import { keepPrompt } from "./prompts.ts";
+import { retryOnce } from "./retry.ts";
 import type { ScanDeps } from "./scan.ts";
 import type { KeepablePick } from "./store.ts";
 import { claudeJson, oneLine } from "./write.ts";
@@ -67,7 +68,7 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
           paper: pick.paper,
           project: projectOf(pick),
           slug: slugOf(pick.title),
-          body: renderDumpBody(await draftKeep(deps, pick), pick.url),
+          body: renderDumpBody(await draftKeep(deps, pick, log), pick.url),
         });
         store.recordKeep(scanId, pick.paper, briefing, { dump }, clock());
         log(`kept ${pick.paper} as ${dump}`);
@@ -84,8 +85,8 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
 
 type KeepDraft = { header: string; learnings: string[] };
 
-async function draftKeep(deps: ScanDeps, pick: KeepablePick): Promise<KeepDraft> {
-  const output = await claudeJson(deps.exec, deps.config.models.write, KEEP_SCHEMA, keepPrompt(pick));
+async function draftKeep(deps: ScanDeps, pick: KeepablePick, log: ScanLog): Promise<KeepDraft> {
+  const output = await retryOnce(`Drafting the Keep of ${pick.paper}`, () => claudeJson(deps.exec, deps.config.models.write, KEEP_SCHEMA, keepPrompt(pick)), deps.sleep, log);
   if (typeof output !== "object" || output === null || !("header" in output) || typeof output.header !== "string" || !("learnings" in output)) {
     throw new PaperBotError("claude -p returned a Keep in the wrong shape");
   }

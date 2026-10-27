@@ -5,6 +5,7 @@ import type { Exec, CommandResult } from "../src/command.ts";
 import type { Config } from "../src/config.ts";
 import type { Fetch } from "../src/http.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
+import type { Sleep } from "../src/retry.ts";
 
 export const ARXIV_FEED = readFileSync(join(import.meta.dir, "fixtures", "arxiv-rss.xml"), "utf8");
 
@@ -34,6 +35,12 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     batch: { size: 100, cap: 20 },
     ...overrides,
   };
+}
+
+/** A sleep that returns at once, recording each wait in ms. */
+export function fakeSleep(): Sleep & { waits: number[] } {
+  const waits: number[] = [];
+  return Object.assign(async (ms: number) => void waits.push(ms), { waits });
 }
 
 export function tempDir(): string {
@@ -81,7 +88,7 @@ export const fixture = (name: string): string => readFileSync(join(import.meta.d
 export const arxivFetch = (feed = ARXIV_FEED): Fetch & { urls: string[] } => sourcesFetch({ "https://rss.arxiv.org/": feed });
 
 export type FakeRanking = { score: number; interests?: string[]; why?: string; wildcard?: boolean };
-type Handler = (argv: string[], stdin: string) => CommandResult;
+export type Handler = (argv: string[], stdin: string) => CommandResult;
 
 export type FakeCommands = {
   exec: Exec;
@@ -96,6 +103,42 @@ const failed = (stderr: string): CommandResult => ({ exitCode: 1, stdout: "", st
 
 /** The ids of the Candidates a prompt names, in order. */
 export const idsIn = (prompt: string): string[] => [...new Set([...prompt.matchAll(/^id: (\S+)$/gm)].map(([, id = ""]) => id))];
+
+/** A fake `codex` scoring each Candidate from `rankings`; unlisted ones score 0. */
+export const fakeCodex =
+  (rankings: Record<string, FakeRanking> = {}): Handler =>
+  (_argv, stdin) =>
+    ok(
+      JSON.stringify({
+        rankings: idsIn(stdin).map((id) => {
+          const ranking = rankings[id] ?? { score: 0 };
+          return { id, interests: ranking.interests ?? [], score: ranking.score, why: ranking.why ?? `ranked ${id}`, wildcard: ranking.wildcard ?? false };
+        }),
+      }),
+    );
+
+/** A fake `claude` writing fixed prose for each Pick or Keep. */
+export const fakeClaude: Handler = (argv, stdin) =>
+  ok(
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "",
+      structured_output: argv.some((arg) => arg.includes('"learnings"'))
+        ? { header: `Header of ${idsIn(stdin)[0]}`, learnings: [`First Learning of ${idsIn(stdin)[0]}`, `Second Learning of ${idsIn(stdin)[0]}`] }
+        : {
+            take: "Today leans toward context.",
+            picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
+          },
+    }),
+  );
+
+/** Answers `failure` the first `times` calls, then hands each call to `handler`. */
+export function failingFirst(failure: CommandResult, handler: Handler, times = 1): Handler {
+  let calls = 0;
+  return (argv, stdin) => (++calls <= times ? failure : handler(argv, stdin));
+}
 
 /**
  * Fake `codex`, `claude` and `brain-dump`. `codex` scores each Candidate from `rankings` (unlisted ones score 0),
@@ -113,32 +156,6 @@ export function fakeCommands(
 ): FakeCommands {
   const vault = new Map(Object.entries(options.notes ?? { [INTERESTS_NOTE]: INTERESTS }));
   const calls: FakeCommands["calls"] = [];
-
-  const codex: Handler = (_argv, stdin) =>
-    ok(
-      JSON.stringify({
-        rankings: idsIn(stdin).map((id) => {
-          const ranking = options.rankings?.[id] ?? { score: 0 };
-          return { id, interests: ranking.interests ?? [], score: ranking.score, why: ranking.why ?? `ranked ${id}`, wildcard: ranking.wildcard ?? false };
-        }),
-      }),
-    );
-
-  const claude: Handler = (argv, stdin) =>
-    ok(
-      JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "",
-        structured_output: argv.some((arg) => arg.includes('"learnings"'))
-          ? { header: `Header of ${idsIn(stdin)[0]}`, learnings: [`First Learning of ${idsIn(stdin)[0]}`, `Second Learning of ${idsIn(stdin)[0]}`] }
-          : {
-              take: "Today leans toward context.",
-              picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
-            },
-      }),
-    );
 
   const brainDump: Handler = (argv, stdin) => {
     const [, command, ...rest] = argv;
@@ -165,8 +182,8 @@ export function fakeCommands(
   };
 
   const handlers: Record<string, Handler> = {
-    codex: options.codex ?? codex,
-    claude: options.claude ?? claude,
+    codex: options.codex ?? fakeCodex(options.rankings),
+    claude: options.claude ?? fakeClaude,
     "brain-dump": options.brainDump ?? brainDump,
   };
 

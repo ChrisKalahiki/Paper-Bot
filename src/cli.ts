@@ -5,6 +5,7 @@ import { spawnExec } from "./command.ts";
 import { loadConfig, paths } from "./config.ts";
 import { PaperBotError, UsageError } from "./errors.ts";
 import { httpFetch } from "./http.ts";
+import { systemSleep } from "./retry.ts";
 import { dailyScan } from "./scan.ts";
 import { openStore } from "./store.ts";
 
@@ -27,7 +28,7 @@ async function scanDaily(): Promise<number> {
   const config = loadConfig(where.config);
   const store = openStore(where.store);
   try {
-    const result = await dailyScan({ config, store, fetch: httpFetch, exec: spawnExec, clock: systemClock, logDir: where.logs });
+    const result = await dailyScan({ config, store, fetch: httpFetch, exec: spawnExec, clock: systemClock, logDir: where.logs, sleep: systemSleep });
     if (result.outcome === "failed") throw new PaperBotError(`Daily Scan failed: ${result.reason}`);
     process.stdout.write(result.outcome === "written" ? `Daily Scan wrote ${result.briefing}\n` : `Daily Scan skipped: ${result.reason}\n`);
     return 0;
