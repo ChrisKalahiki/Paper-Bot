@@ -10,6 +10,7 @@ Always use `bun`, never `npm`.
 - `bun test` or `bun run test:file -- tests/scan.test.ts`: tests.
 - `bun run lint:file -- src/scan.ts`: lint some files.
 - `bun src/cli.ts scan --daily`: a Daily Scan against the real config, store, sources and CLIs.
+- `bun scripts/install-launch-agent.ts`: installs and loads the 06:00 LaunchAgent. Never call it, or `launchctl`, from an agent or a test.
 
 ## Layout
 
@@ -19,6 +20,7 @@ Always use `bun`, never `npm`.
 - `src/sources/`: one module per source, fetching through `Fetch` (`src/http.ts`) and returning `Candidate`s; pointers (HF, the labs) return `Pointers`, which `src/pointers.ts` gathers and attaches as signals.
 - `src/rank.ts` (`codex exec`), `src/write.ts` (`claude -p`), `src/prompts.ts` (their prompts), `src/full-text.ts` (Picks' arXiv HTML or open-access PDF as text), `src/briefing.ts` (renders the note), `src/brain-dump.ts` (Vault access).
 - `src/store.ts`: SQLite. Schema changes are a new entry in `MIGRATIONS`, never an edit to a shipped one.
+- `launchd/dev.paper-bot.scan.plist`: the LaunchAgent template that `scripts/install-launch-agent.ts` fills in.
 - `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, recorded responses from every source (`sourcesFetch`) and a fixed clock.
 
 ## Rules

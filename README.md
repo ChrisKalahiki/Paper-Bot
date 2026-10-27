@@ -50,6 +50,28 @@ The store is SQLite at `$XDG_DATA_HOME/paper-bot/paper-bot.db` (default `~/.loca
 
 `codex` and `claude` must be logged in, and `brain-dump` must have `write-briefing` and the Briefing origin of `write-dump`.
 
+## Schedule
+
+`launchd/dev.paper-bot.scan.plist` is a LaunchAgent template (label `dev.paper-bot.scan`) that starts `paper-bot scan` at 06:00 local time every day, or when the Mac wakes if it was asleep then. Install it from the checkout launchd should use, in a shell where `codex` is on PATH (with nvm, after `nvm use`):
+
+```sh
+bun scripts/install-launch-agent.ts
+launchctl print gui/$(id -u)/dev.paper-bot.scan   # loaded; "runs" counts the Scans started so far
+```
+
+The script fills in the template with this checkout, this `bun`, your home folder and username, and the folder holding `codex`, writes it to `~/Library/LaunchAgents/dev.paper-bot.scan.plist`, creates `~/Library/Logs/paper-bot`, and loads it into your login session with `launchctl bootstrap`, replacing an earlier install. The agent sets `HOME`, `USER` and `LOGNAME` (without them `claude -p` reports "Not logged in") and a `PATH` of the `codex` folder (its `node` too), bun's folder, `~/.local/bin` (`claude`, `brain-dump`) and the system folders. `claude` reads its login from the Keychain, so you must be logged in to the Mac for a Scan to reach it.
+
+The `codex` folder is written into the plist. With nvm it names the Node version, so after an nvm upgrade the Scans fail with `cannot start codex`: install again. Install again too after moving the checkout or reinstalling bun.
+
+To start a Scan now: `launchctl kickstart gui/$(id -u)/dev.paper-bot.scan`. To uninstall:
+
+```sh
+launchctl bootout gui/$(id -u)/dev.paper-bot.scan
+rm ~/Library/LaunchAgents/dev.paper-bot.scan.plist
+```
+
+Logs are in `~/Library/Logs/paper-bot/`: each Scan's own log (`<date>-daily.log`, `<date>-weekly.log`), and what launchd caught of its output, `launchd.out.log` (how each Scan settled) and `launchd.err.log` (why a Scan failed or could not start).
+
 ## Checks
 
 `bun run check` is the typecheck, Biome lint, the Glossary check and the tests. The Glossary check (`bun run glossary`) fails on any `_Avoid_:` term from `GLOSSARY.md` in the README, CLAUDE.md, prompts, or string literals in `src/`; terms with a common other sense are listed as unchecked in `scripts/glossary.ts`. `bun install` points git at `.githooks`, whose pre-commit hook calls `check`. CI checks every push and PR the same way.
