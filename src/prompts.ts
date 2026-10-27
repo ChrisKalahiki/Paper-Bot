@@ -1,6 +1,7 @@
 import { type Candidate, primaryId, type Ranking } from "./candidate.ts";
-import { longDate } from "./clock.ts";
+import { type IsoWeek, longDate } from "./clock.ts";
 import type { Interest, InterestsNote, Wildcards } from "./interests.ts";
+import type { WeekPick } from "./store.ts";
 
 const interestList = (interests: Interest[]): string =>
   interests
@@ -83,6 +84,28 @@ ${listed}
 Return:
 - take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them;
 - picks: one entry per Pick, with its id exactly as given, a why line of at most 30 words on why it matters to Chris, and a summary of one or two sentences on what the Paper did and found, drawn from its full text where it has one.
+
+Use only what is given above. Include no URLs, and name no Paper that is not listed.
+`;
+}
+
+export function weeklyPrompt(week: IsoWeek, picks: WeekPick[], interests: string[]): string {
+  const listed = picks
+    .map(
+      ({ paper, title, interests, wildcard, why, summary }) =>
+        `id: ${paper}\ntitle: ${title}\ninterests: ${interests.join(", ") || (wildcard ? "none, a Wildcard" : "none")}\nwhy it was Picked: ${why}\nsummary: ${summary}`,
+    )
+    .join("\n\n");
+  return `You write the themes of Chris's Weekly Briefing for ${week.name}, ${longDate(week.monday)} to ${longDate(week.sunday)}. Code lays out the note; you return only the themes, as JSON.
+
+His Interests: ${interests.join("; ")}.
+
+This week's Picks, in the order they appeared:
+
+${listed}
+
+Return:
+- themes: one to three threads running through this week's Picks, each a headline of one short sentence and a body of at most 50 words that names the Picks it draws on by title and the Interests they bear on.
 
 Use only what is given above. Include no URLs, and name no Paper that is not listed.
 `;

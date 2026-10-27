@@ -13,6 +13,7 @@ Always use `bun`, never `npm`.
 
 ## Layout
 
+- `src/schedule.ts`: the Scans `paper-bot scan` starts; `src/weekly.ts`: the Weekly Scan.
 - `src/scan.ts`: the Daily Scan pipeline. `ScanDeps` is the seam: config, store, `fetch`, `exec` and clock are passed in.
 - `src/command.ts`: `Exec`, the one way to start `codex`, `claude` and `brain-dump`.
 - `src/sources/`: one module per source, fetching through `Fetch` (`src/http.ts`) and returning `Candidate`s.

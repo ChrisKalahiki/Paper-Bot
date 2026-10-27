@@ -117,7 +117,7 @@ export const fakeCodex =
       }),
     );
 
-/** A fake `claude` writing fixed prose for each Pick or Keep. */
+/** A fake `claude` writing fixed prose for each Pick, Keep or Weekly Briefing's themes. */
 export const fakeClaude: Handler = (argv, stdin) =>
   ok(
     JSON.stringify({
@@ -127,10 +127,12 @@ export const fakeClaude: Handler = (argv, stdin) =>
       result: "",
       structured_output: argv.some((arg) => arg.includes('"learnings"'))
         ? { header: `Header of ${idsIn(stdin)[0]}`, learnings: [`First Learning of ${idsIn(stdin)[0]}`, `Second Learning of ${idsIn(stdin)[0]}`] }
-        : {
-            take: "Today leans toward context.",
-            picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
-          },
+        : argv.some((arg) => arg.includes('"themes"'))
+          ? { themes: [{ headline: "Context is the week's thread.", body: `${idsIn(stdin).length} Picks circle it.` }] }
+          : {
+              take: "Today leans toward context.",
+              picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
+            },
     }),
   );
 

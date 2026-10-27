@@ -1,5 +1,9 @@
 import { type Candidate, primaryId, SOURCE_LABELS, type SourceName } from "./candidate.ts";
-import { localDate, longDate } from "./clock.ts";
+import { dayAndMonth, type IsoWeek, localDate, longDate } from "./clock.ts";
+import { WILDCARDS_HEADING } from "./interests.ts";
+import type { WeekPick } from "./store.ts";
+
+const TOP_PICKS = 5;
 
 export function dailyBriefingPath(at: Date): string {
   return `Research/Briefings/Daily/${localDate(at)} Daily Briefing.md`;
@@ -75,4 +79,68 @@ ${footer}
 `;
 }
 
-const linkText = (title: string): string => title.replace(/([[\]])/g, "\\$1");
+export function weeklyBriefingPath(week: IsoWeek): string {
+  return `Research/Briefings/Weekly/${week.name} Weekly Briefing.md`;
+}
+
+export type Theme = { headline: string; body: string };
+
+export type WeeklyBriefing = {
+  week: IsoWeek;
+  themes: Theme[];
+  /** The Interests Note's Interests, then any other Interest a Pick names. */
+  interests: string[];
+  /** The week's Picks, by date and then rank. */
+  picks: WeekPick[];
+  /** The week's Daily Briefings, oldest first. */
+  dailies: string[];
+};
+
+/**
+ * Variant W1, themes first, with W2's per-Interest table: the themes and quiet Interests, Picks and Keeps per Interest,
+ * the best Picks not yet Kept with Keep boxes, the Picks already Kept, then links to the week's Daily Briefings.
+ */
+export function renderWeeklyBriefing({ week, themes, interests, picks, dailies }: WeeklyBriefing): string {
+  const ofInterest = (name: string) => picks.filter((pick) => pick.interests.includes(name));
+  const wildcards = picks.filter((pick) => pick.wildcard && pick.interests.length === 0);
+  const quiet = interests.filter((name) => ofInterest(name).length === 0);
+  const rows: [string, WeekPick[]][] = interests.map((name) => [name, ofInterest(name)]);
+  if (wildcards.length > 0) rows.push([WILDCARDS_HEADING, wildcards]);
+  const top = picks
+    .filter((pick) => !pick.kept)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_PICKS)
+    .map((pick) => `- [ ] Keep [${linkText(pick.title)}](${pick.url}) · from ${noteLink(pick.briefing)} ^${blockIdOf(pick.paper)}`);
+  const kept = picks.filter((pick) => pick.kept).map((pick) => `- [${linkText(pick.title)}](${pick.url}) → in the Inbox`);
+  const paragraphs = [
+    ...themes.map(({ headline, body }) => `**${headline}** ${body}`),
+    ...(quiet.length > 0 ? [`**Quiet:** ${quiet.join(", ")} had no Pick this week.`] : []),
+  ];
+  const sections = [
+    `## This week in your Interests
+
+${paragraphs.join("\n\n")}
+
+| Interest | Picks | Kept |
+| --- | --- | --- |
+${rows.map(([name, ofRow]) => `| ${name} | ${ofRow.length} | ${ofRow.filter((pick) => pick.kept).length} |`).join("\n")}`,
+    ...(top.length > 0 ? [`## Top Picks\n\n${top.join("\n")}`] : []),
+    ...(kept.length > 0 ? [`## Already kept this week\n\n${kept.join("\n")}`] : []),
+    `## Daily Briefings\n\n${dailies.map(noteLink).join(" · ")}`,
+  ];
+  return `---
+tags: [briefing, briefing/weekly]
+week: ${week.name}
+dailies: ${dailies.length}
+picks: ${picks.length}
+---
+
+# Weekly Briefing · ${week.name} (${dayAndMonth(week.monday)} – ${dayAndMonth(week.sunday)})
+
+${sections.join("\n\n")}
+`;
+}
+
+const noteLink = (path: string): string => `[[${path.replace(/^.*\//, "").replace(/\.md$/, "")}]]`;
+
+const linkText =(title: string): string => title.replace(/([[\]])/g, "\\$1");

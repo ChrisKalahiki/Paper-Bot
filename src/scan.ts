@@ -101,7 +101,7 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
   }
 }
 
-async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
+export async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
   const note = parseInterestsNote(await brainDump.show(INTERESTS_NOTE), knownVenues);
   if (note.interests.length === 0) throw new PaperBotError(`${INTERESTS_NOTE} lists no Interests`);
   return note;
