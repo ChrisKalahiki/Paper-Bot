@@ -1,17 +1,17 @@
-import { arxivIdsInUrl, bareDoi, type Candidate, doiIds } from "../candidate.ts";
+import { arxivIdsInUrl, bareDoi, type Candidate, doiIds, SOURCE_LABELS } from "../candidate.ts";
 import { localDate } from "../clock.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Fetch, fetchOk } from "../http.ts";
+import { collapse } from "./rss.ts";
 
-export const WORKS = "https://api.openalex.org/works";
+const WORKS = "https://api.openalex.org/works";
 
 /** OpenAlex subfields: 3304 Education, 1709 Human-Computer Interaction. */
-const SUBFIELDS = ["3304", "1709"];
+export const SUBFIELDS = ["3304", "1709"];
 
 /** Publication dates lag and get backfilled, so each Scan re-reads a rolling window and the store drops what it has seen. */
 const WINDOW_DAYS = 14;
 
-export const OPENALEX_FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
+const OPENALEX_FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
 
 export type OpenAlexOptions = {
   key: string;
@@ -31,7 +31,7 @@ export type Work = {
   abstract_inverted_index?: Record<string, number[]> | null;
 };
 
-type Page = { meta?: { next_cursor?: string | null }; results?: Work[] };
+export type WorksPage = { meta?: { next_cursor?: string | null }; results?: Work[] };
 
 /** Works published in the last 14 days in Education or HCI, plus this and last year's works from the watched Venues. */
 export async function fetchOpenAlexCandidates(fetch: Fetch, options: OpenAlexOptions, at: Date): Promise<Candidate[]> {
@@ -56,10 +56,7 @@ async function allWorks(fetch: Fetch, filter: string, key: string): Promise<Work
   const works: Work[] = [];
   let cursor: string | null | undefined = "*";
   while (cursor) {
-    const params = new URLSearchParams({ filter, select: OPENALEX_FIELDS, "per-page": "200", cursor, api_key: key });
-    const response = await fetch(`${WORKS}?${params}`);
-    if (!response.ok) throw new PaperBotError(`OpenAlex answered ${response.status}`);
-    const page = (await response.json()) as Page;
+    const page = await fetchWorksPage(fetch, filter, { cursor, key });
     const results = page.results ?? [];
     works.push(...results);
     cursor = results.length > 0 ? page.meta?.next_cursor : null;
@@ -67,8 +64,14 @@ async function allWorks(fetch: Fetch, filter: string, key: string): Promise<Work
   return works;
 }
 
+/** One page of the works matching `filter`, up to 200; `cursor` pages through them, and `key` is the API key, if any. */
+export async function fetchWorksPage(fetch: Fetch, filter: string, { cursor, key }: { cursor?: string; key?: string } = {}): Promise<WorksPage> {
+  const params = new URLSearchParams({ filter, select: OPENALEX_FIELDS, "per-page": "200", ...(cursor !== undefined && { cursor }), ...(key !== undefined && { api_key: key }) });
+  return (await (await fetchOk(fetch, `${WORKS}?${params}`, SOURCE_LABELS.openalex)).json()) as WorksPage;
+}
+
 export function toCandidate(work: Work, names: Record<string, string>): Candidate | undefined {
-  const title = work.title?.replace(/\s+/g, " ").trim();
+  const title = collapse(work.title ?? "");
   const openalex = work.id?.match(/W\d+$/)?.[0];
   if (!title || openalex === undefined) return undefined;
   const doi = work.doi ? doiIds(work.doi) : [];
@@ -90,5 +93,5 @@ function abstractOf(index: Work["abstract_inverted_index"]): string {
   if (!index) return "";
   const words: string[] = [];
   for (const [word, positions] of Object.entries(index)) for (const position of positions) words[position] = word;
-  return words.filter((word) => word !== undefined).join(" ").replace(/\s+/g, " ").trim();
+  return collapse(words.filter((word) => word !== undefined).join(" "));
 }

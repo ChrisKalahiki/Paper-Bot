@@ -1,6 +1,5 @@
 import { type LabName, linkIds, type Pointers, SOURCE_LABELS } from "../candidate.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Fetch, fetchOk } from "../http.ts";
 
 /** The lab post URLs, of those given, that no earlier Scan has read. */
 export type Unread = (urls: string[]) => string[];
@@ -16,9 +15,7 @@ export function pointAt(lab: LabName, link: string, paper: { title: string; abst
 }
 
 export async function fetchPage(fetch: Fetch, lab: LabName, url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw new PaperBotError(`${SOURCE_LABELS[lab]} answered ${response.status} for ${url}`);
-  return response.text();
+  return (await fetchOk(fetch, url, SOURCE_LABELS[lab], { namingUrl: true })).text();
 }
 
 export function joinPointers(found: Pointers[]): Pointers {

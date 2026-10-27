@@ -1,6 +1,5 @@
-import type { Pointers } from "../candidate.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Pointers, SOURCE_LABELS } from "../candidate.ts";
+import { type Fetch, fetchOk } from "../http.ts";
 import { collapse, element, rssItems } from "./rss.ts";
 
 const FEED = "https://openai.com/news/rss.xml";
@@ -10,8 +9,7 @@ const RESEARCH_CATEGORY = /^(?:Research|Publication)$/;
 
 /** OpenAI's research posts, pointing at Papers by title: the posts sit behind a bot wall, so the feed is all there is. */
 export async function fetchOpenAiPointers(fetch: Fetch): Promise<Pointers> {
-  const response = await fetch(FEED);
-  if (!response.ok) throw new PaperBotError(`OpenAI answered ${response.status}`);
+  const response = await fetchOk(fetch, FEED, SOURCE_LABELS.openai);
   const signals = rssItems(await response.text()).flatMap((item) => {
     const title = collapse(element(item, "title") ?? "");
     const categories = [...item.matchAll(/<category(?:\s[^>]*)?>[\s\S]*?<\/category>/g)].map(([category]) => element(category, "category"));

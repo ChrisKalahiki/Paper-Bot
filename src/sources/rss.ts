@@ -7,13 +7,18 @@ export function feedCandidates(xml: string, source: SourceName, base: string): C
     const link = element(item, "link");
     if (title === "" || link === undefined || link === "") return [];
     const url = new URL(link, base).href;
-    return [{ source, ids: [`url:${url}`], title, url, abstract: collapse((element(item, "description") ?? "").replace(/<[^>]*>/g, " ")) }];
+    return [{ source, ids: [`url:${url}`], title, url, abstract: collapse(stripTags(element(item, "description") ?? "")) }];
   });
 }
 
 /** The body of each `<item>` in an RSS feed. */
 export function rssItems(xml: string): string[] {
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map(([, item = ""]) => item);
+}
+
+/** The body of each `<entry>` in an Atom feed. */
+export function atomEntries(xml: string): string[] {
+  return [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(([, entry = ""]) => entry);
 }
 
 /** The text of the first `<tag>` element, unwrapped from CDATA or with entities decoded. */
@@ -36,3 +41,6 @@ export function decodeEntities(text: string): string {
 }
 
 export const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+/** HTML with each tag replaced by a space. */
+export const stripTags = (html: string): string => html.replace(/<[^>]*>/g, " ");

@@ -1,18 +1,19 @@
 import { arxivIds, type Candidate } from "../candidate.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Fetch, fetchOk } from "../http.ts";
 import type { Sleep } from "../retry.ts";
-import { collapse, element, rssItems } from "./rss.ts";
+import { atomEntries, collapse, element, rssItems } from "./rss.ts";
 
 const RSS_BASE = "https://rss.arxiv.org/rss/";
 
 /** Announce types of Papers new to arXiv today; `replace` and `replace-cross` are revisions of older ones. */
-const KEPT_ANNOUNCE_TYPES = new Set(["new", "cross"]);
+const NEW_ANNOUNCE_TYPES = new Set(["new", "cross"]);
+
+/** The arXiv id, without its version, in an arxiv.org abstract link. */
+const absId = (url: string | undefined): string | undefined => url?.match(/arxiv\.org\/abs\/(.+?)(?:v\d+)?$/)?.[1];
 
 /** Today's announcement for the categories, from one combined feed. */
 export async function fetchArxivCandidates(fetch: Fetch, categories: string[]): Promise<Candidate[]> {
-  const response = await fetch(`${RSS_BASE}${categories.join("+")}`);
-  if (!response.ok) throw new PaperBotError(`arXiv RSS answered ${response.status}`);
+  const response = await fetchOk(fetch, `${RSS_BASE}${categories.join("+")}`, "arXiv RSS");
   return parseArxivRss(await response.text());
 }
 
@@ -30,10 +31,9 @@ export async function fetchArxivSubmitted(fetch: Fetch, categories: string[], wi
   const candidates: Candidate[] = [];
   for (let start = 0; ; start += API_PAGE) {
     if (start > 0) await sleep(API_INTERVAL_MS);
-    const response = await fetch(`${API_BASE}?search_query=${query}&sortBy=submittedDate&sortOrder=ascending&start=${start}&max_results=${API_PAGE}`);
-    if (!response.ok) throw new PaperBotError(`arXiv API answered ${response.status}`);
-    const xml = await response.text();
-    const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(([, entry = ""]) => entry);
+    const url = `${API_BASE}?search_query=${query}&sortBy=submittedDate&sortOrder=ascending&start=${start}&max_results=${API_PAGE}`;
+    const xml = await (await fetchOk(fetch, url, "arXiv API")).text();
+    const entries = atomEntries(xml);
     candidates.push(...entries.flatMap(apiCandidate));
     const total = Number(element(xml, "opensearch:totalResults") ?? 0);
     if (entries.length === 0 || start + entries.length >= total) return candidates;
@@ -44,7 +44,7 @@ export async function fetchArxivSubmitted(fetch: Fetch, categories: string[], wi
 const apiTime = (at: Date): string => at.toISOString().slice(0, 16).replace(/\D/g, "");
 
 function apiCandidate(entry: string): Candidate[] {
-  const id = element(entry, "id")?.match(/arxiv\.org\/abs\/(.+?)(?:v\d+)?$/)?.[1];
+  const id = absId(element(entry, "id"));
   const title = element(entry, "title");
   if (id === undefined || title === undefined) return [];
   return [
@@ -63,9 +63,9 @@ function parseArxivRss(xml: string): Candidate[] {
   return rssItems(xml).flatMap((item) => {
     const announceType = element(item, "arxiv:announce_type");
     const link = element(item, "link");
-    const id = link?.match(/arxiv\.org\/abs\/(.+?)(?:v\d+)?$/)?.[1];
+    const id = absId(link);
     const title = element(item, "title");
-    if (announceType === undefined || !KEPT_ANNOUNCE_TYPES.has(announceType) || link === undefined || id === undefined || title === undefined) return [];
+    if (announceType === undefined || !NEW_ANNOUNCE_TYPES.has(announceType) || link === undefined || id === undefined || title === undefined) return [];
     return [
       {
         source: "arxiv" as const,

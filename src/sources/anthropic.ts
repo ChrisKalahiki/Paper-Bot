@@ -2,7 +2,7 @@ import { type Candidate, linkIds, type Pointers } from "../candidate.ts";
 import { DAY_MS } from "../clock.ts";
 import type { Fetch } from "../http.ts";
 import { announcedBy, fetchPage, joinPointers, linksTo, pointAt, type Unread } from "./lab.ts";
-import { collapse, decodeEntities, element } from "./rss.ts";
+import { atomEntries, collapse, decodeEntities, element, stripTags } from "./rss.ts";
 
 const RESEARCH = "https://www.anthropic.com/research";
 const CIRCUITS_FEED = "https://transformer-circuits.pub/feed.xml";
@@ -22,12 +22,12 @@ export async function fetchAnthropicPointers(fetch: Fetch, unread: Unread, at: D
 async function fetchCircuits(fetch: Fetch, at: Date): Promise<Candidate[]> {
   const since = at.getTime() - WINDOW_DAYS * DAY_MS;
   const feed = await fetchPage(fetch, "anthropic", CIRCUITS_FEED);
-  return [...feed.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].flatMap(([, entry = ""]) => {
+  return atomEntries(feed).flatMap((entry) => {
     const title = collapse(element(entry, "title") ?? "");
     const link = entry.match(/<link\s[^>]*href="([^"]+)"/)?.[1];
     const date = Date.parse(element(entry, "published") ?? element(entry, "updated") ?? "");
     if (title === "" || link === undefined || !(date >= since)) return [];
-    const abstract = collapse((element(entry, "summary") ?? "").replace(/<[^>]*>/g, " "));
+    const abstract = collapse(stripTags(element(entry, "summary") ?? ""));
     return [{ source: "anthropic" as const, ids: [`url:${link}`], title, url: link, abstract, signals: [announcedBy("anthropic")] }];
   });
 }

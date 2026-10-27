@@ -1,6 +1,5 @@
-import type { Candidate } from "../candidate.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Candidate, SOURCE_LABELS } from "../candidate.ts";
+import { type Fetch, fetchOk } from "../http.ts";
 import { element, feedCandidates, rssItems } from "./rss.ts";
 
 const BASE = "https://proceedings.mlr.press/";
@@ -25,7 +24,5 @@ function newestIcmlVolume(xml: string): number | undefined {
 }
 
 async function feed(fetch: Fetch, url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw new PaperBotError(`PMLR answered ${response.status}`);
-  return response.text();
+  return (await fetchOk(fetch, url, SOURCE_LABELS.pmlr)).text();
 }

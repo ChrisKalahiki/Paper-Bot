@@ -1,6 +1,6 @@
 import { type Candidate, primaryId } from "./candidate.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
-import type { Fetch } from "./http.ts";
+import { type Fetch, fetchOk } from "./http.ts";
 import type { ScanLog } from "./log.ts";
 import type { PickInput, PickToWrite } from "./prompts.ts";
 
@@ -36,8 +36,7 @@ export async function readFullText(fetch: Fetch, candidate: Candidate): Promise<
     if (text !== "") return text.slice(0, FULL_TEXT_LIMIT);
   }
   if (candidate.pdf === undefined) return undefined;
-  const response = await fetch(candidate.pdf);
-  if (!response.ok) throw new PaperBotError(`${candidate.pdf} answered ${response.status}`);
+  const response = await fetchOk(fetch, candidate.pdf, candidate.pdf);
   const text = await pdfText(candidate.pdf, new Uint8Array(await response.arrayBuffer()));
   return text === "" ? undefined : text.slice(0, FULL_TEXT_LIMIT);
 }

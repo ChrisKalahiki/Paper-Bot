@@ -1,6 +1,5 @@
 import { type Candidate, doiIds } from "../candidate.ts";
-import { PaperBotError } from "../errors.ts";
-import type { Fetch } from "../http.ts";
+import { type Fetch, fetchOk } from "../http.ts";
 import { collapse } from "./rss.ts";
 
 const API = "https://api.ies.ed.gov/eric/";
@@ -23,8 +22,7 @@ export async function fetchEricCandidates(fetch: Fetch, at: Date): Promise<Candi
   const records: EricRecord[] = [];
   for (let start = 0; ; start += ROWS) {
     const params = new URLSearchParams({ search, format: "json", rows: String(ROWS), start: String(start) });
-    const response = await fetch(`${API}?${params}`);
-    if (!response.ok) throw new PaperBotError(`ERIC answered ${response.status}`);
+    const response = await fetchOk(fetch, `${API}?${params}`, "ERIC");
     const page = (await response.json()) as Page;
     const docs = page.response?.docs ?? [];
     records.push(...docs);

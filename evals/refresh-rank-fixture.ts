@@ -4,8 +4,9 @@ import type { Candidate } from "../src/candidate.ts";
 import { localDate } from "../src/clock.ts";
 import { httpFetch } from "../src/http.ts";
 import { fetchArxivCandidates } from "../src/sources/arxiv.ts";
-import { OPENALEX_FIELDS, toCandidate, WORKS, type Work } from "../src/sources/openalex.ts";
-import { EXAMPLE_CONFIG } from "./claude.ts";
+import { PaperBotError } from "../src/errors.ts";
+import { fetchWorksPage, SUBFIELDS, toCandidate } from "../src/sources/openalex.ts";
+import { EXAMPLE_CONFIG } from "./example-config.ts";
 import { RANK_FIXTURES, type RankFixture } from "./rank.ts";
 
 // `bun evals/refresh-rank-fixture.ts [--discard-labels]`: freezes today's real Candidates as the rank eval's day, each with an empty label.
@@ -13,8 +14,6 @@ import { RANK_FIXTURES, type RankFixture } from "./rank.ts";
 
 const ARXIV_SAMPLE = 80;
 const OPENALEX_SAMPLE = 16;
-/** OpenAlex's Education and Human-Computer Interaction subfields, as the Scan fetches them. */
-const SUBFIELDS = "3304|1709";
 
 async function main(argv: string[]): Promise<number> {
   const path = join(import.meta.dir, "..", RANK_FIXTURES.day);
@@ -31,13 +30,8 @@ async function main(argv: string[]): Promise<number> {
 
   const arxiv = await fetchArxivCandidates(httpFetch, EXAMPLE_CONFIG.arxiv.categories);
   const arxivIds = new Set(arxiv.flatMap(({ ids }) => ids));
-  const filter = `primary_topic.subfield.id:${SUBFIELDS},from_publication_date:${localDate(yesterday)},to_publication_date:${localDate(today)},has_abstract:true`;
-  const response = await httpFetch(`${WORKS}?${new URLSearchParams({ filter, select: OPENALEX_FIELDS, "per-page": "200" })}`);
-  if (!response.ok) {
-    console.error(`refresh: OpenAlex answered ${response.status}`);
-    return 1;
-  }
-  const works = ((await response.json()) as { results?: Work[] }).results ?? [];
+  const filter = `primary_topic.subfield.id:${SUBFIELDS.join("|")},from_publication_date:${localDate(yesterday)},to_publication_date:${localDate(today)},has_abstract:true`;
+  const works = (await fetchWorksPage(httpFetch, filter)).results ?? [];
   const openalex = works.flatMap((work) => toCandidate(work, {}) ?? []).filter(({ ids, abstract }) => abstract !== "" && !ids.some((id) => arxivIds.has(id)));
 
   const fixture: RankFixture = {
@@ -55,4 +49,10 @@ function spread(candidates: Candidate[], count: number): Candidate[] {
   return Array.from({ length: count }, (_, i) => candidates[Math.floor((i * candidates.length) / count)]).filter((candidate) => candidate !== undefined);
 }
 
-process.exitCode = await main(process.argv.slice(2));
+try {
+  process.exitCode = await main(process.argv.slice(2));
+} catch (error) {
+  if (!(error instanceof PaperBotError)) throw error;
+  console.error(`refresh: ${error.message}`);
+  process.exitCode = 1;
+}
