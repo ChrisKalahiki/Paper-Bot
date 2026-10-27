@@ -1106,6 +1106,19 @@ describe("a Daily Scan with pointers", () => {
     expect(fetch.urls.filter((url) => url.startsWith("https://deepmind.google/research/publications/2"))).toHaveLength(3);
   });
 
+  test("tells the ranker a Candidate was accepted at a Venue the config names, watched or not", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const config = testConfig({ venues: { CHI: "S4363607743" } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, fetch: sourcesFetch({ "https://api.openalex.org/": fixture("openalex-works.json") }) });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "doi:10.1145/3772318.3790001")).toEndWith("\nsignals: accepted at CHI");
+  });
+
   test("still writes its Briefing when a pointer fails, recording which", async () => {
     // #given
     const { storePath, logDir } = sandbox();

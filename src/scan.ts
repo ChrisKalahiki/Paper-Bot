@@ -123,7 +123,10 @@ async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceRes
   const at = deps.clock();
   const fetchers: Record<PaperSourceName, () => Promise<Candidate[]>> = {
     arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
-    openalex: () => fetchOpenAlexCandidates(fetch, { key: config.openalex.key, venues }, at),
+    openalex: () => {
+      const names = Object.fromEntries(Object.entries(config.venues).map(([name, id]) => [id, name]));
+      return fetchOpenAlexCandidates(fetch, { key: config.openalex.key, venues, names }, at);
+    },
     eric: () => fetchEricCandidates(fetch, at),
     pmlr: () => fetchPmlrCandidates(fetch),
     jmlr: () => fetchJmlrCandidates(fetch),
