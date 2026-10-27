@@ -12,3 +12,5 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - if: ${{ !cancelled() }}
+        run: bun run eval:check
