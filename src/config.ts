@@ -9,6 +9,8 @@ export type Config = {
   /** The `brain-dump` command: a name on PATH or an absolute path. */
   brainDump: string;
   arxiv: { categories: string[] };
+  /** Venue name, as the Interests Note writes it, to its OpenAlex source id. */
+  venues: Record<string, string>;
   /** A Pick scores at least `pick`; a Wildcard at least `wildcard`. */
   bars: { pick: number; wildcard: number };
   /** Candidates per ranking call, and at most `cap` calls per Scan. */
@@ -68,9 +70,18 @@ export function parseConfig(value: unknown): Config {
     models: { rank: text(models.rank, "models.rank"), write: text(models.write, "models.write") },
     brainDump: text(root.brainDump, "brainDump"),
     arxiv: { categories },
+    venues: venueMap(root.venues),
     bars: { pick: integer(bars.pick, "bars.pick", 0, 10), wildcard: integer(bars.wildcard, "bars.wildcard", 0, 10) },
     batch: { size: integer(batch.size, "batch.size", 1, 1000), cap: integer(batch.cap, "batch.cap", 1, 1000) },
   };
+}
+
+function venueMap(value: unknown): Record<string, string> {
+  const venues = object(value, "venues");
+  for (const [name, id] of Object.entries(venues)) {
+    if (typeof id !== "string" || !/^S\d+$/.test(id)) throw new PaperBotError(`venues.${name} must be the id of an OpenAlex source, such as S4363607743`);
+  }
+  return venues as Record<string, string>;
 }
 
 function object(value: unknown, field: string): Record<string, unknown> {

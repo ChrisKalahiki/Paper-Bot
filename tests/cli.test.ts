@@ -123,4 +123,15 @@ describe("config.example.json", () => {
     // #then
     expect(parsing).not.toThrow();
   });
+
+  test("a Venue must map to an OpenAlex source id", () => {
+    // #given
+    const config = { ...testConfig(), venues: { CHI: "chi" } };
+
+    // #when
+    const parsing = () => parseConfig(config);
+
+    // #then
+    expect(parsing).toThrow("venues.CHI must be the id of an OpenAlex source, such as S4363607743");
+  });
 });
