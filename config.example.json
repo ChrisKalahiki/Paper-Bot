@@ -19,6 +19,7 @@
     "Computers & Education: AI": "S4210183364",
     "IJAIED": "S171267539"
   },
+  "openalex": { "key": "your OpenAlex API key, from openalex.org/settings/api-key" },
   "bars": { "pick": 7, "wildcard": 8 },
   "batch": { "size": 100, "cap": 20 }
 }

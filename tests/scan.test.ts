@@ -6,7 +6,20 @@ import type { Fetch } from "../src/http.ts";
 import { INTERESTS_NOTE } from "../src/interests.ts";
 import { dailyScan } from "../src/scan.ts";
 import { openStore } from "../src/store.ts";
-import { arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, idsIn, INTERESTS, MONDAY, tempDir, testConfig } from "./harness.ts";
+import {
+  ARXIV_FEED,
+  arxivFeedOf,
+  arxivFetch,
+  type FakeCommands,
+  fakeCommands,
+  fixture,
+  idsIn,
+  INTERESTS,
+  MONDAY,
+  sourcesFetch,
+  tempDir,
+  testConfig,
+} from "./harness.ts";
 
 const BRIEFING = "Research/Briefings/Daily/2026-10-26 Daily Briefing.md";
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
@@ -88,7 +101,17 @@ picks: 2
 
     // #then
     expect(stored(storePath)).toEqual({
-      scans: [{ id: 1, kind: "daily", date: "2026-10-26", outcome: "written", reason: null, briefing: BRIEFING, sources: { arxiv: { candidates: 2 } } }],
+      scans: [
+        {
+          id: 1,
+          kind: "daily",
+          date: "2026-10-26",
+          outcome: "written",
+          reason: null,
+          briefing: BRIEFING,
+          sources: { arxiv: { candidates: 2 }, openalex: { candidates: 0 }, eric: { candidates: 0 }, pmlr: { candidates: 0 }, jmlr: { candidates: 0 } },
+        },
+      ],
       picks: [
         {
           scanId: 1,
@@ -182,7 +205,7 @@ picks: 2
     expect({ result, fetched: fetch.urls }).toEqual({ result: { outcome: "failed", reason: `${INTERESTS_NOTE} lists no Interests` }, fetched: [] });
   });
 
-  test("fails, recording why, when arXiv cannot be fetched", async () => {
+  test("fails, recording why, when every source fails", async () => {
     // #given
     const { storePath, logDir } = sandbox();
     const commands = fakeCommands({ rankings: PICKED });
@@ -193,8 +216,32 @@ picks: 2
 
     // #then
     expect(stored(storePath).scans.map(({ outcome, reason, sources }) => ({ outcome, reason, sources }))).toEqual([
-      { outcome: "failed", reason: "every source failed (arXiv: arXiv RSS answered 503)", sources: { arxiv: { error: "arXiv RSS answered 503" } } },
+      {
+        outcome: "failed",
+        reason: "every source failed (arXiv: arXiv RSS answered 503; OpenAlex: OpenAlex answered 503; ERIC: ERIC answered 503; PMLR: PMLR answered 503; JMLR: JMLR answered 503)",
+        sources: {
+          arxiv: { error: "arXiv RSS answered 503" },
+          openalex: { error: "OpenAlex answered 503" },
+          eric: { error: "ERIC answered 503" },
+          pmlr: { error: "PMLR answered 503" },
+          jmlr: { error: "JMLR answered 503" },
+        },
+      },
     ]);
+  });
+
+  test("still writes its Briefing when some sources fail, recording which", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const working = arxivFetch();
+    const fetch = async (url: string) => (url.startsWith("https://api.openalex.org/") ? new Response("busy", { status: 429 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ outcome: result.outcome, openalex: stored(storePath).scans[0]?.sources?.openalex }).toEqual({ outcome: "written", openalex: { error: "OpenAlex answered 429" } });
   });
 
   test("never ranks a Paper twice: the next Scan drops Papers already in the store", async () => {
@@ -418,5 +465,151 @@ Avoid: pure long-context architecture papers; benchmark-only papers`);
       "2 candidates · arXiv 2",
       'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"; unreadable bullet under AI in higher education: "- Priority: high"\n',
     ]);
+  });
+});
+
+describe("a Daily Scan across sources", () => {
+  const ALL_SOURCES = {
+    "https://rss.arxiv.org/": ARXIV_FEED,
+    "https://api.openalex.org/": fixture("openalex-works.json"),
+    "https://api.ies.ed.gov/eric/": fixture("eric.json"),
+    "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"),
+    "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml"),
+    "https://www.jmlr.org/": fixture("jmlr.xml"),
+  };
+  const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
+  const openalexServing = (...works: object[]) => sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+  const work = (id: string, extra: object = {}) => ({ id: `https://openalex.org/${id}`, title: `Work ${id}`, abstract_inverted_index: { Text: [0] }, ...extra });
+  const rankedIds = (commands: FakeCommands) => codexCalls(commands).flatMap(({ stdin }) => idsIn(stdin));
+
+  test("ranks every source's Candidates once, a Paper two sources share only once", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch(ALL_SOURCES) });
+
+    // #then
+    expect(rankedIds(commands)).toEqual([
+      "arxiv:2610.32109",
+      "arxiv:2610.31679",
+      "doi:10.1145/3772318.3790001",
+      "openalex:W4416000003",
+      "doi:10.1080/03075079.2026.2290001",
+      "eric:ED670002",
+      "url:https://proceedings.mlr.press/v306/lee26a.html",
+      "url:https://proceedings.mlr.press/v306/ono26b.html",
+      "url:https://www.jmlr.org/papers/v27/25-0101.html",
+    ]);
+  });
+
+  test("counts the ranked Candidates per source in the footer", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch(ALL_SOURCES) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.trim().split("\n").at(-1)).toBe("9 candidates · arXiv 2 · OpenAlex 2 · ERIC 2 · PMLR 2 · JMLR 1");
+  });
+
+  test("drops a Candidate from another source that matches a stored id, and its new ids join that Paper", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir });
+    const preprint = work("W4416000002", { doi: "https://doi.org/10.48550/arXiv.2610.32109" });
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch: openalexServing(preprint) });
+    const commands = fakeCommands();
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, at: WEDNESDAY, fetch: openalexServing(work("W4416000002")) });
+
+    // #then
+    expect({ result, ranked: rankedIds(commands) }).toEqual({ result: { outcome: "skipped", reason: "no new Candidates" }, ranked: [] });
+  });
+
+  test("logs a Candidate whose ids match two stored Papers, and merges none of its ids", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir });
+    const bridging = work("W9", { doi: "https://doi.org/10.48550/arXiv.2610.32109", locations: [{ landing_page_url: "https://arxiv.org/abs/2610.31679" }] });
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch: openalexServing(bridging) });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, at: WEDNESDAY, fetch: openalexServing(work("W9")) });
+
+    // #then
+    const log = readFileSync(join(logDir, "2026-10-27-daily.log"), "utf8");
+    expect({ logged: log.includes('"Work W9" (arxiv:2610.32109) matches 2 stored Papers; its ids were not merged'), ranked: rankedIds(commands) }).toEqual({
+      logged: true,
+      ranked: ["openalex:W9"],
+    });
+  });
+
+  test("leaves out, and logs, a Candidate whose ids match two others fetched in the same Scan", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const bridging = work("W9", { doi: "https://doi.org/10.48550/arXiv.2610.32109", locations: [{ landing_page_url: "https://arxiv.org/abs/2610.31679" }] });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [bridging] }) });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const log = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8");
+    expect({ logged: log.includes('"Work W9" (arxiv:2610.32109) matches two other Candidates; its ids were not merged'), ranked: rankedIds(commands) }).toEqual({
+      logged: true,
+      ranked: ["arxiv:2610.32109", "arxiv:2610.31679"],
+    });
+  });
+
+  test("ranks a Candidate with no abstract but never Picks it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const lee = "url:https://proceedings.mlr.press/v306/lee26a.html";
+    const ono = "url:https://proceedings.mlr.press/v306/ono26b.html";
+    const interests = ["Context management in AI"];
+    const commands = fakeCommands({ rankings: { [lee]: { score: 8, interests }, [ono]: { score: 10, interests } } });
+    const fetch = sourcesFetch({ "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ ranked: rankedIds(commands), picks: stored(storePath).picks.map((pick) => pick.paper) }).toEqual({ ranked: [lee, ono], picks: [lee] });
+  });
+
+  test("tells the ranker a Candidate has no abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain("title: Sparse World Models\nabstract: none\n");
+  });
+
+  test("asks OpenAlex for the works of the Venues the Interests Note watches", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents carry context.\n\n- Venues: ACL, EMNLP\n";
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+    const fetch = arxivFetch();
+    const config = testConfig({ venues: { ACL: "S4363608652", EMNLP: "S4363608991", CHI: "S4363607743" } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch, config });
+
+    // #then
+    const filters = fetch.urls.filter((url) => url.startsWith("https://api.openalex.org/")).map((url) => new URL(url).searchParams.get("filter"));
+    expect(filters).toContain("primary_location.source.id:S4363608652|S4363608991,publication_year:2026|2025");
   });
 });

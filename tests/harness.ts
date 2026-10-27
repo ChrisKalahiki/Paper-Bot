@@ -29,6 +29,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     brainDump: "brain-dump",
     arxiv: { categories: ["cs.AI", "cs.CL", "cs.HC"] },
     venues: {},
+    openalex: { key: "openalex-test-key" },
     bars: { pick: 7, wildcard: 8 },
     batch: { size: 100, cap: 20 },
     ...overrides,
@@ -49,14 +50,35 @@ Abstract: Abstract ${i + 1}.</description><arxiv:announce_type>new</arxiv:announ
   return `<?xml version='1.0' encoding='UTF-8'?><rss version="2.0"><channel>${items.join("\n")}</channel></rss>`;
 }
 
-export function arxivFetch(feed = ARXIV_FEED): Fetch & { urls: string[] } {
+const EMPTY_RSS = "<?xml version='1.0' encoding='UTF-8'?><rss version=\"2.0\"><channel></channel></rss>";
+
+/** Every source answering with nothing new, keyed by URL prefix. */
+const EMPTY_SOURCES: Record<string, string> = {
+  "https://rss.arxiv.org/": EMPTY_RSS,
+  "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [] }),
+  "https://api.ies.ed.gov/eric/": JSON.stringify({ response: { numFound: 0, docs: [] } }),
+  "https://proceedings.mlr.press/": EMPTY_RSS,
+  "https://www.jmlr.org/": EMPTY_RSS,
+};
+
+/** Recorded source responses: each URL gets the body served under its longest matching prefix, over empty answers from every source. */
+export function sourcesFetch(served: Record<string, string> = {}): Fetch & { urls: string[] } {
+  const bodies = { ...EMPTY_SOURCES, ...served };
   const urls: string[] = [];
   const fetch = async (url: string) => {
     urls.push(url);
-    return new Response(feed);
+    const prefix = Object.keys(bodies)
+      .filter((key) => url.startsWith(key))
+      .sort((a, b) => b.length - a.length)[0];
+    return prefix === undefined ? new Response("not found", { status: 404 }) : new Response(bodies[prefix]);
   };
   return Object.assign(fetch, { urls });
 }
+
+export const fixture = (name: string): string => readFileSync(join(import.meta.dir, "fixtures", name), "utf8");
+
+/** arXiv serves `feed`; every other source has nothing new. */
+export const arxivFetch = (feed = ARXIV_FEED): Fetch & { urls: string[] } => sourcesFetch({ "https://rss.arxiv.org/": feed });
 
 export type FakeRanking = { score: number; interests?: string[]; why?: string; wildcard?: boolean };
 type Handler = (argv: string[], stdin: string) => CommandResult;
@@ -73,7 +95,7 @@ const ok = (stdout: string): CommandResult => ({ exitCode: 0, stdout, stderr: ""
 const failed = (stderr: string): CommandResult => ({ exitCode: 1, stdout: "", stderr });
 
 /** The ids of the Candidates a prompt names, in order. */
-export const idsIn = (prompt: string): string[] => [...new Set(prompt.match(/arxiv:\d{4}\.\d{4,5}/g))];
+export const idsIn = (prompt: string): string[] => [...new Set([...prompt.matchAll(/^id: (\S+)$/gm)].map(([, id = ""]) => id))];
 
 /**
  * Fake `codex`, `claude` and `brain-dump`. `codex` scores each Candidate from `rankings` (unlisted ones score 0),

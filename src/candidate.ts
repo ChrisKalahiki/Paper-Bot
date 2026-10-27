@@ -49,3 +49,30 @@ export function primaryId(candidate: Candidate): string {
 
 /** How the ranker judged one Candidate against the Interests. */
 export type Ranking = { interests: string[]; score: number; why: string; wildcard: boolean };
+
+/**
+ * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids (and an abstract, if
+ * it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
+ */
+export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[]; conflicts: Candidate[] } {
+  const merged: Candidate[] = [];
+  const conflicts: Candidate[] = [];
+  const owner = new Map<string, Candidate>();
+  for (const candidate of candidates) {
+    const matches = new Set(candidate.ids.flatMap((id) => owner.get(id) ?? []));
+    const [match] = matches;
+    if (matches.size > 1) {
+      conflicts.push(candidate);
+      continue;
+    }
+    const kept = match ?? { ...candidate, ids: [] };
+    if (match === undefined) merged.push(kept);
+    else if (kept.abstract === "") kept.abstract = candidate.abstract;
+    for (const id of candidate.ids) {
+      if (owner.has(id)) continue;
+      owner.set(id, kept);
+      kept.ids.push(id);
+    }
+  }
+  return { merged, conflicts };
+}

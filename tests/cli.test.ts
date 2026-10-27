@@ -134,4 +134,15 @@ describe("config.example.json", () => {
     // #then
     expect(parsing).toThrow("venues.CHI must be the id of an OpenAlex source, such as S4363607743");
   });
+
+  test("needs the OpenAlex key", () => {
+    // #given
+    const config = { ...testConfig(), openalex: { key: "" } };
+
+    // #when
+    const parsing = () => parseConfig(config);
+
+    // #then
+    expect(parsing).toThrow("openalex.key must be a non-empty string");
+  });
 });

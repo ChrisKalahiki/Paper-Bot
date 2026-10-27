@@ -73,8 +73,11 @@ export type ScanRow = {
 export type PickRow = { scanId: number; paper: string; title: string; rank: number; interests: string[]; why: string; summary: string };
 
 export type Store = {
-  /** Whether any of the Candidate's ids belongs to a Paper already in the store. */
-  isKnown(candidate: Candidate): boolean;
+  /**
+   * The stored Papers the Candidate's ids belong to. When that is exactly one, the Candidate's other ids join its id
+   * set; when it is more, nothing is merged.
+   */
+  matchKnown(candidate: Candidate): number[];
   startScan(kind: ScanKind, date: string, at: Date): number;
   /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score. */
   saveRankings(scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: Date): void;
@@ -99,6 +102,15 @@ export function openStore(path: string): Store {
     "INSERT INTO papers (title, url, abstract, source, first_seen) VALUES (?, ?, ?, ?, ?) RETURNING id",
   );
   const insertId = db.query("INSERT INTO paper_ids (id, paper_id) VALUES (?, ?)");
+
+  const matchKnown = db.transaction((candidate: Candidate): number[] => {
+    const papers = [...new Set(candidate.ids.flatMap((id) => findId.get(id)?.paper_id ?? []))];
+    const [paper] = papers;
+    if (papers.length === 1 && paper !== undefined) {
+      for (const id of candidate.ids) if (findId.get(id) === null) insertId.run(id, paper);
+    }
+    return papers;
+  });
   const insertScore = db.query("INSERT INTO scores (paper_id, scan_id, score, interests, why, wildcard) VALUES (?, ?, ?, ?, ?, ?)");
   const insertPick = db.query("INSERT INTO picks (scan_id, paper_id, rank, why, summary) VALUES (?, ?, ?, ?, ?)");
 
@@ -128,7 +140,7 @@ export function openStore(path: string): Store {
   });
 
   return {
-    isKnown: (candidate) => candidate.ids.some((id) => findId.get(id) !== null),
+    matchKnown: (candidate) => matchKnown(candidate),
     startScan(kind, date, at) {
       const row = db
         .query<{ id: number }, [string, string, string]>("INSERT INTO scans (kind, date, started_at) VALUES (?, ?, ?) RETURNING id")

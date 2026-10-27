@@ -18,7 +18,7 @@ Always use `bun`, never `npm`.
 - `src/sources/`: one module per source, fetching through `Fetch` (`src/http.ts`) and returning `Candidate`s.
 - `src/rank.ts` (`codex exec`), `src/write.ts` (`claude -p`), `src/prompts.ts` (their prompts), `src/briefing.ts` (renders the note), `src/brain-dump.ts` (Vault access).
 - `src/store.ts`: SQLite. Schema changes are a new entry in `MIGRATIONS`, never an edit to a shipped one.
-- `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, a fake arXiv feed and a fixed clock.
+- `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, recorded responses from every source (`sourcesFetch`) and a fixed clock.
 
 ## Rules
 

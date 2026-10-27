@@ -1,6 +1,6 @@
 import { type BrainDump, brainDumpCli } from "./brain-dump.ts";
 import { dailyBriefingPath, renderDailyBriefing } from "./briefing.ts";
-import { type Candidate, primaryId, type Ranking } from "./candidate.ts";
+import { type Candidate, mergeCandidates, primaryId, type Ranking, SOURCE_LABELS, type SourceName } from "./candidate.ts";
 import { type Clock, localDate } from "./clock.ts";
 import type { Exec } from "./command.ts";
 import type { Config } from "./config.ts";
@@ -11,6 +11,10 @@ import { openScanLog, type ScanLog } from "./log.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
 import { fetchArxivCandidates } from "./sources/arxiv.ts";
+import { fetchEricCandidates } from "./sources/eric.ts";
+import { fetchJmlrCandidates } from "./sources/jmlr.ts";
+import { fetchOpenAlexCandidates } from "./sources/openalex.ts";
+import { fetchPmlrCandidates } from "./sources/pmlr.ts";
 import type { Outcome, SourceResults, Store } from "./store.ts";
 import { claudeWriter } from "./write.ts";
 
@@ -45,8 +49,8 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
     log(`Interests: ${note.interests.map((interest) => interest.name).join("; ")}`);
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
-    const fetched = await fetchSources(deps, sources, log);
-    const candidates = fetched.filter((candidate) => !store.isKnown(candidate));
+    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, log);
+    const candidates = dropKnown(fetched, store, log);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched`);
     if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
@@ -82,17 +86,54 @@ async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promi
   return note;
 }
 
-async function fetchSources(deps: ScanDeps, sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
-  try {
-    const candidates = await fetchArxivCandidates(deps.fetch, deps.config.arxiv.categories);
-    sources.arxiv = { candidates: candidates.length };
-    log(`arXiv: ${candidates.length} Candidates`);
-    return candidates;
-  } catch (error) {
-    sources.arxiv = { error: messageOf(error) };
-    log(`arXiv failed: ${messageOf(error)}`);
-    throw new PaperBotError(`every source failed (arXiv: ${messageOf(error)})`);
-  }
+/** The OpenAlex source ids of the Venues the Interests watch; names the config doesn't map are the note's issues. */
+function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] {
+  return [...new Set(note.interests.flatMap((interest) => interest.venues.flatMap((venue) => venues[venue] ?? [])))];
+}
+
+/** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
+async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
+  const { fetch, config } = deps;
+  const at = deps.clock();
+  const fetchers: Record<SourceName, () => Promise<Candidate[]>> = {
+    arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
+    openalex: () => fetchOpenAlexCandidates(fetch, { key: config.openalex.key, venues }, at),
+    eric: () => fetchEricCandidates(fetch, at),
+    pmlr: () => fetchPmlrCandidates(fetch),
+    jmlr: () => fetchJmlrCandidates(fetch),
+  };
+  const fetched = await Promise.all(
+    (Object.entries(fetchers) as [SourceName, () => Promise<Candidate[]>][]).map(async ([source, fetchCandidates]) => {
+      try {
+        const candidates = await fetchCandidates();
+        sources[source] = { candidates: candidates.length };
+        log(`${SOURCE_LABELS[source]}: ${candidates.length} Candidates`);
+        return { source, candidates };
+      } catch (error) {
+        sources[source] = { error: messageOf(error) };
+        log(`${SOURCE_LABELS[source]} failed: ${messageOf(error)}`);
+        return { source, error: messageOf(error) };
+      }
+    }),
+  );
+  const failures = fetched.flatMap(({ source, error }) => (error === undefined ? [] : [`${SOURCE_LABELS[source]}: ${error}`]));
+  if (failures.length === fetched.length) throw new PaperBotError(`every source failed (${failures.join("; ")})`);
+  return fetched.flatMap(({ candidates }) => candidates ?? []);
+}
+
+/**
+ * Merges Candidates that are one Paper, then drops those whose ids are in the store; a stored Paper takes up their new
+ * ids. A Candidate matching two Papers is logged and merged into neither.
+ */
+function dropKnown(fetched: Candidate[], store: Store, log: ScanLog): Candidate[] {
+  const { merged, conflicts } = mergeCandidates(fetched);
+  const named = (candidate: Candidate) => `"${candidate.title}" (${primaryId(candidate)})`;
+  for (const candidate of conflicts) log(`${named(candidate)} matches two other Candidates; its ids were not merged`);
+  return merged.filter((candidate) => {
+    const papers = store.matchKnown(candidate);
+    if (papers.length > 1) log(`${named(candidate)} matches ${papers.length} stored Papers; its ids were not merged`);
+    return papers.length === 0;
+  });
 }
 
 type Ranked = PickInput;
@@ -128,12 +169,13 @@ async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNot
 
 /**
  * The best Candidates at or above the Pick bar that match an Interest, then the best flagged Wildcards that match none
- * at or above the Wildcard bar, up to the cap. Each best first; ties keep fetch order.
+ * at or above the Wildcard bar, up to the cap. Each best first; ties keep fetch order. A Candidate with no abstract is
+ * never a Pick.
  */
 function choosePicks(ranked: Ranked[], bars: Config["bars"], wildcardCap: number): Ranked[] {
   const best = (filter: (ranking: Ranking) => boolean, count: number): Ranked[] =>
     ranked
-      .filter(({ ranking }) => filter(ranking))
+      .filter(({ candidate, ranking }) => candidate.abstract !== "" && filter(ranking))
       .sort((a, b) => b.ranking.score - a.ranking.score)
       .slice(0, count);
   return [

@@ -11,6 +11,8 @@ export type Config = {
   arxiv: { categories: string[] };
   /** Venue name, as the Interests Note writes it, to its OpenAlex source id. */
   venues: Record<string, string>;
+  /** The free OpenAlex API key. */
+  openalex: { key: string };
   /** A Pick scores at least `pick`; a Wildcard at least `wildcard`. */
   bars: { pick: number; wildcard: number };
   /** Candidates per ranking call, and at most `cap` calls per Scan. */
@@ -60,6 +62,7 @@ export function parseConfig(value: unknown): Config {
   const root = object(value, "the config");
   const models = object(root.models, "models");
   const arxiv = object(root.arxiv, "arxiv");
+  const openalex = object(root.openalex, "openalex");
   const bars = object(root.bars, "bars");
   const batch = object(root.batch, "batch");
   const categories = arxiv.categories;
@@ -71,6 +74,7 @@ export function parseConfig(value: unknown): Config {
     brainDump: text(root.brainDump, "brainDump"),
     arxiv: { categories },
     venues: venueMap(root.venues),
+    openalex: { key: text(openalex.key, "openalex.key") },
     bars: { pick: integer(bars.pick, "bars.pick", 0, 10), wildcard: integer(bars.wildcard, "bars.wildcard", 0, 10) },
     batch: { size: integer(batch.size, "batch.size", 1, 1000), cap: integer(batch.cap, "batch.cap", 1, 1000) },
   };
