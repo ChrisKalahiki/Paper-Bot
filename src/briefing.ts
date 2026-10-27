@@ -18,7 +18,7 @@ export type DailyBriefing = {
   candidates: Partial<Record<SourceName, number>>;
 };
 
-/** The Obsidian block id that ties a Keep tick back to its Paper: `pick-` and the Paper's id, with every run of other characters as `-`. */
+/** The Obsidian block id that ties a Keep tick back to its Paper: `pick-` and the Paper's id, with each stretch of other characters as `-`. */
 export function pickBlockId(candidate: Candidate): string {
   const id = primaryId(candidate).replace(/^[a-z]+:/, "");
   return `pick-${id.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;

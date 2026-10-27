@@ -1,0 +1,7 @@
+{
+  "models": { "rank": "gpt-6.1-sol", "write": "claude-sonnet-5-5" },
+  "brainDump": "brain-dump",
+  "arxiv": { "categories": ["cs.AI", "cs.CL", "cs.LG", "cs.CV", "cs.HC", "cs.CY", "cs.MA"] },
+  "bars": { "pick": 7, "wildcard": 8 },
+  "batch": { "size": 100, "cap": 20 }
+}

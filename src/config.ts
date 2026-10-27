@@ -40,7 +40,7 @@ export function loadConfig(path: string): Config {
   } catch (error) {
     throw new PaperBotError(`cannot read the config at ${path}: ${messageOf(error)}; start from config.example.json`);
   }
-  if ((mode & 0o077) !== 0) throw new PaperBotError(`${path} is readable by other users; run chmod 600 ${path}`);
+  if ((mode & 0o077) !== 0) throw new PaperBotError(`${path} is readable by other users; make it private with chmod 600 ${path}`);
   let value: unknown;
   try {
     value = JSON.parse(text);
