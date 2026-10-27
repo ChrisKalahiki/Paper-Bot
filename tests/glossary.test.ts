@@ -140,6 +140,20 @@ describe("the Glossary check", () => {
     });
   });
 
+  test("an avoided term's parenthesised gloss is not part of the term", () => {
+    // #given
+    const root = tree({
+      "GLOSSARY.md": `${GLOSSARY}\n**Scan**:\nOne scheduled execution.\n_Avoid_: run (a Brain-Dump Run is one set of Vault changes), job\n`,
+      "README.md": "Each run writes a Briefing.\n",
+    });
+
+    // #when
+    const hits = glossaryHits(root);
+
+    // #then
+    expect(hits).toEqual([{ file: "README.md", line: 1, term: "run" }]);
+  });
+
   test("the command passes on a clean tree", () => {
     // #given
     const root = tree({ "README.md": "Dump it.\n" });

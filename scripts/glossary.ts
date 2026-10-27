@@ -39,7 +39,12 @@ export function glossaryHits(root: string): GlossaryHit[] {
 }
 
 function avoidedTerms(glossary: string): string[] {
-  const terms = [...glossary.matchAll(/^_Avoid_:(.*)$/gm)].flatMap((match) => (match[1] ?? "").split(",").map((term) => term.trim()));
+  const terms = [...glossary.matchAll(/^_Avoid_:(.*)$/gm)].flatMap((match) =>
+    (match[1] ?? "")
+      .replace(/\([^)]*\)/g, "")
+      .split(",")
+      .map((term) => term.trim()),
+  );
   const checked = terms.filter((term) => term !== "" && !UNCHECKED_TERMS.has(term.toLowerCase()));
   return [...new Map(checked.map((term) => [term.toLowerCase(), term])).values()];
 }
