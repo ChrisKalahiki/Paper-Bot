@@ -12,6 +12,7 @@ import { arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, IN
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 const USAGE = "usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json";
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
+const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
 const NEXT_MONDAY = new Date("2026-11-02T12:00:00Z");
 const MONDAY_BRIEFING = "Research/Briefings/Daily/2026-10-26 Daily Briefing.md";
 const TUESDAY_BRIEFING = "Research/Briefings/Daily/2026-10-27 Daily Briefing.md";
@@ -219,6 +220,27 @@ describe("paper-bot picks --json", () => {
         since: "2026-10-27T12:00:00.000Z",
       },
     ]);
+  });
+
+  test("dates a failing Keep by its first failed try, not its latest", async () => {
+    // #given
+    const box = sandbox();
+    const monday = fakeCommands({ rankings: RANKINGS });
+    await daily(box, monday, MONDAY);
+    const ticked = (monday.vault.get(MONDAY_BRIEFING) ?? "").replace("- [ ] Keep ^pick-2610-32109", "- [x] Keep ^pick-2610-32109");
+    const refused = () =>
+      fakeCommands({
+        notes: { [INTERESTS_NOTE]: INTERESTS, [MONDAY_BRIEFING]: ticked },
+        writeDump: () => ({ exitCode: 1, stdout: "", stderr: "brain-dump: Vault not found at /nowhere\n" }),
+      });
+    await daily(box, refused(), TUESDAY, arxivFetch(arxivFeedOf(0)));
+    await daily(box, refused(), WEDNESDAY, arxivFetch(arxivFeedOf(0)));
+
+    // #when
+    const { keeps } = report(box, WEDNESDAY);
+
+    // #then
+    expect(keeps.failing.map(({ since }) => since)).toEqual(["2026-10-27T12:00:00.000Z"]);
   });
 
   test("drops last week's Picks when the week rolls over", async () => {

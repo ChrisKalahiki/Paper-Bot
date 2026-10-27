@@ -175,9 +175,9 @@ export type Store = {
   /** Every Paper ever Picked, once each, with what its first Pick said. */
   keepablePicks(): KeepablePick[];
   keeps(): KeepRow[];
-  /** Keeps whose last try failed, oldest first: `at` is that try. */
+  /** Keeps whose last try failed, oldest first: `at` is when it first failed. */
   failingKeeps(): FailingKeep[];
-  /** Records a Keep's Dump, or the error of a failed try; a later try replaces it. */
+  /** Records a Keep's Dump, or the error of a failed try; a later try replaces it, except that a failure after a failure keeps the first one's time. */
   recordKeep(scanId: number, paper: string, briefing: string, kept: { dump: string } | { error: string }, at: Date): void;
   /** The lab post URLs, of those given, that no Scan has read. */
   unreadPosts(urls: string[]): string[];
@@ -213,7 +213,8 @@ export function openStore(path: string, { readonly = false } = {}): Store {
   const insertPick = db.query("INSERT INTO picks (scan_id, paper_id, rank, why, summary) VALUES (?, ?, ?, ?, ?)");
   const upsertKeep = db.query(
     `INSERT INTO keeps (paper_id, scan_id, briefing, dump, error, at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error, at = excluded.at`,
+     ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error,
+       at = CASE WHEN keeps.error IS NOT NULL AND excluded.error IS NOT NULL THEN keeps.at ELSE excluded.at END`,
   );
   const findPost = db.query<{ url: string }, [string]>("SELECT url FROM lab_posts WHERE url = ?");
   const insertPost = db.query("INSERT OR IGNORE INTO lab_posts (url, read_at) VALUES (?, ?)");

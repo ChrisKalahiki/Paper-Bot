@@ -31,7 +31,7 @@ export type ReportedPick = {
 /** What `paper-bot picks --json` prints: the contract homeros's paper-bot Source polls (ChrisKalahiki/homeros#77). */
 export type PicksReport = {
   scans: { daily: ReportedDailyScan | null; weekly: ReportedWeeklyScan | null };
-  /** `since` is the Keep's last failed try. */
+  /** `since` is the Keep's first failed try. */
   keeps: { failing: { id: string; title: string; error: string; since: string }[] };
   week: string;
   picks: ReportedPick[];
