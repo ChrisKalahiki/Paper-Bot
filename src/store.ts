@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Candidate, primaryId, type Ranking } from "./candidate.ts";
-import { PaperBotError } from "./errors.ts";
+import { messageOf, PaperBotError } from "./errors.ts";
 
 /** Migration n takes the store from `user_version` n to n + 1. Never edit one that has shipped; add another. */
 const MIGRATIONS = [
@@ -102,6 +102,9 @@ export type ScanRow = {
   sources: SourceResults | null;
 };
 
+/** A Scan that has settled: `at` is when. */
+export type SettledScanRow = Omit<ScanRow, "outcome"> & { outcome: Outcome; at: string };
+
 /** A Pick as a Keep needs it: the Paper's primary id, what the Scan stored about it, and why it was Picked. */
 export type KeepablePick = {
   paper: string;
@@ -117,11 +120,17 @@ export type KeepablePick = {
 /** A Paper Chris ticked Keep: `dump` once its Dump is written, else the `error` of the last try, retried next Scan. */
 export type KeepRow = { paper: string; scanId: number; briefing: string; dump: string | null; error: string | null; at: string };
 
-/** A Pick as a Weekly Briefing lists it: `briefing` is the Daily Briefing it appeared in; `kept` once its Keep's Dump is written. */
+export type FailingKeep = { paper: string; title: string; error: string; at: string };
+
+/**
+ * A Pick as a Weekly Briefing lists it: `date` and `briefing` are those of the Daily Briefing it appeared in; `kept` once
+ * its Keep's Dump is written, at `keptAt`.
+ */
 export type WeekPick = {
   paper: string;
   title: string;
   url: string;
+  date: string;
   score: number;
   interests: string[];
   wildcard: boolean;
@@ -129,6 +138,7 @@ export type WeekPick = {
   summary: string;
   briefing: string;
   kept: boolean;
+  keptAt: string | null;
 };
 
 export type PickRow = { scanId: number; paper: string; title: string; rank: number; interests: string[]; why: string; summary: string };
@@ -155,6 +165,8 @@ export type Store = {
   /** Records how the Scan ended, with its Picks, once its Briefing is settled. */
   settleScan(scanId: number, settlement: Settlement, picks: PickRecord[]): void;
   scans(): ScanRow[];
+  /** The Scan of `kind` that settled last, or null before the first. */
+  lastSettled(kind: ScanKind): SettledScanRow | null;
   picks(): PickRow[];
   /** The Picks of Daily Briefings dated `from` to `to` (`YYYY-MM-DD`, both included), by date and then rank. */
   weekPicks(from: string, to: string): WeekPick[];
@@ -163,6 +175,8 @@ export type Store = {
   /** Every Paper ever Picked, once each, with what its first Pick said. */
   keepablePicks(): KeepablePick[];
   keeps(): KeepRow[];
+  /** Keeps whose last try failed, oldest first: `at` is that try. */
+  failingKeeps(): FailingKeep[];
   /** Records a Keep's Dump, or the error of a failed try; a later try replaces it. */
   recordKeep(scanId: number, paper: string, briefing: string, kept: { dump: string } | { error: string }, at: Date): void;
   /** The lab post URLs, of those given, that no Scan has read. */
@@ -171,12 +185,9 @@ export type Store = {
   close(): void;
 };
 
-export function openStore(path: string): Store {
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path, { create: true, strict: true });
-  db.run("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA foreign_keys = ON");
-  migrate(db, path);
+/** `readonly` opens an existing store without creating, migrating or writing to it. */
+export function openStore(path: string, { readonly = false } = {}): Store {
+  const db = readonly ? openReadonly(path) : openWritable(path);
 
   const findId = db.query<{ paper_id: number }, [string]>("SELECT paper_id FROM paper_ids WHERE id = ?");
   const paperOf = (candidate: Candidate): number | undefined => findId.get(primaryId(candidate))?.paper_id;
@@ -290,6 +301,15 @@ export function openStore(path: string): Store {
         .query<Omit<ScanRow, "sources"> & { sources: string | null }, []>("SELECT id, kind, date, outcome, reason, briefing, sources FROM scans ORDER BY id")
         .all()
         .map((row) => ({ ...row, sources: row.sources === null ? null : (JSON.parse(row.sources) as SourceResults) })),
+    lastSettled(kind) {
+      const row = db
+        .query<Omit<SettledScanRow, "sources"> & { sources: string | null }, [ScanKind]>(
+          `SELECT id, kind, date, outcome, reason, briefing, sources, settled_at AS at FROM scans
+           WHERE kind = ? AND settled_at IS NOT NULL ORDER BY settled_at DESC, id DESC LIMIT 1`,
+        )
+        .get(kind);
+      return row === null ? null : { ...row, sources: row.sources === null ? null : (JSON.parse(row.sources) as SourceResults) };
+    },
     picks: () =>
       db
         .query<Omit<PickRow, "interests"> & { interests: string }, []>(
@@ -302,15 +322,16 @@ export function openStore(path: string): Store {
         .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[] })),
     weekPicks: (from, to) =>
       db
-        .query<Omit<WeekPick, "interests" | "wildcard" | "kept"> & { interests: string; wildcard: number; kept: number }, [string, string]>(
-          `SELECT ${primaryIdOf} AS paper, papers.title, papers.url, scores.score, scores.interests, scores.wildcard, picks.why, picks.summary, scans.briefing,
-             EXISTS (SELECT 1 FROM keeps WHERE keeps.paper_id = picks.paper_id AND keeps.dump IS NOT NULL) AS kept
+        .query<Omit<WeekPick, "interests" | "wildcard" | "kept"> & { interests: string; wildcard: number }, [string, string]>(
+          `SELECT ${primaryIdOf} AS paper, papers.title, papers.url, scans.date, scores.score, scores.interests, scores.wildcard, picks.why, picks.summary,
+             scans.briefing, keeps.at AS keptAt
            FROM picks JOIN scans ON scans.id = picks.scan_id JOIN papers ON papers.id = picks.paper_id JOIN scores ON scores.paper_id = picks.paper_id
+             LEFT JOIN keeps ON keeps.paper_id = picks.paper_id AND keeps.dump IS NOT NULL
            WHERE scans.kind = 'daily' AND scans.outcome = 'written' AND scans.date BETWEEN ? AND ?
            ORDER BY scans.date, scans.id, picks.rank`,
         )
         .all(from, to)
-        .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[], wildcard: row.wildcard === 1, kept: row.kept === 1 })),
+        .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[], wildcard: row.wildcard === 1, kept: row.keptAt !== null })),
     briefingsSince: (date) =>
       db
         .query<{ briefing: string }, [string]>("SELECT briefing FROM scans WHERE briefing IS NOT NULL AND date >= ? ORDER BY date, id")
@@ -338,6 +359,13 @@ export function openStore(path: string): Store {
            FROM keeps JOIN papers ON papers.id = keeps.paper_id ORDER BY keeps.at, keeps.paper_id`,
         )
         .all(),
+    failingKeeps: () =>
+      db
+        .query<FailingKeep, []>(
+          `SELECT ${primaryIdOf} AS paper, papers.title, keeps.error, keeps.at
+           FROM keeps JOIN papers ON papers.id = keeps.paper_id WHERE keeps.error IS NOT NULL ORDER BY keeps.at, keeps.paper_id`,
+        )
+        .all(),
     recordKeep(scanId, paper, briefing, kept, at) {
       const paperId = findId.get(paper)?.paper_id;
       if (paperId === undefined) throw new PaperBotError(`Kept Paper ${paper} is not in the store`);
@@ -354,8 +382,35 @@ function optional(authors: string | null, pdf: string | null): Pick<Candidate, "
   return { ...(authors !== null && { authors: JSON.parse(authors) as string[] }), ...(pdf !== null && { pdf }) };
 }
 
+function openWritable(path: string): Database {
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path, { create: true, strict: true });
+  db.run("PRAGMA journal_mode = WAL");
+  db.run("PRAGMA foreign_keys = ON");
+  migrate(db, path);
+  return db;
+}
+
+function openReadonly(path: string): Database {
+  let db: Database;
+  let version: number;
+  try {
+    db = new Database(path, { readonly: true, strict: true });
+    version = storeVersion(db);
+  } catch (error) {
+    throw new PaperBotError(`cannot read the store at ${path}: ${messageOf(error)}`);
+  }
+  if (version !== MIGRATIONS.length) {
+    db.close();
+    throw new PaperBotError(`${path} is at store version ${version}, not ${MIGRATIONS.length}; a Scan upgrades it`);
+  }
+  return db;
+}
+
+const storeVersion = (db: Database): number => db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+
 function migrate(db: Database, path: string): void {
-  const version = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+  const version = storeVersion(db);
   if (version > MIGRATIONS.length) throw new PaperBotError(`${path} was written by a newer paper-bot (store version ${version})`);
   MIGRATIONS.slice(version).forEach((migration, i) => {
     db.transaction(() => {
