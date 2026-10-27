@@ -51,6 +51,13 @@ async function weekOfPicks(box: Sandbox, commands: FakeCommands): Promise<void> 
 const weeklyScans = (box: Sandbox) =>
   withStore(box, (store) => store.scans().filter(({ kind }) => kind === "weekly").map(({ date, outcome, reason, briefing }) => ({ date, outcome, reason, briefing })));
 
+/** The item bounds of the `themes` array in the schema passed to `claude -p --json-schema`. */
+function themesSchema(argv: string[]): { minItems: unknown; maxItems: unknown } {
+  const schema: unknown = JSON.parse(argv[argv.indexOf("--json-schema") + 1] ?? "{}");
+  const themes = (schema as { properties?: { themes?: { minItems?: unknown; maxItems?: unknown } } }).properties?.themes;
+  return { minItems: themes?.minItems, maxItems: themes?.maxItems };
+}
+
 const claudeCalls = (commands: FakeCommands) => commands.calls.filter(({ argv }) => argv[0] === "claude");
 
 describe("paper-bot scan on a Monday", () => {
@@ -113,7 +120,7 @@ picks: 4
     expect(await weeklyScans(box)).toEqual([{ date: "2026-10-19", outcome: "written", reason: null, briefing: WEEKLY }]);
   });
 
-  test("writes the themes with claude -p, with no tools, against a JSON schema, from the week's Picks", async () => {
+  test("writes 1 to 4 themes with claude -p, with no tools, against a JSON schema, from the week's Picks", async () => {
     // #given
     const box = sandbox();
     const commands = fakeCommands({ rankings: RANKINGS });
@@ -127,11 +134,13 @@ picks: 4
     const [call] = claudeCalls(commands).slice(before);
     expect({
       flags: call?.argv.slice(0, 9),
-      schema: call?.argv.includes("--json-schema"),
+      themes: themesSchema(call?.argv ?? []),
+      asks: call?.stdin.includes("two to four threads"),
       ids: (call?.stdin.match(/^id: \S+$/gm) ?? []).length,
     }).toEqual({
       flags: ["claude", "-p", "--no-session-persistence", "--model", "claude-test", "--tools", "", "--strict-mcp-config", "--safe-mode"],
-      schema: true,
+      themes: { minItems: 1, maxItems: 4 },
+      asks: true,
       ids: 4,
     });
   });

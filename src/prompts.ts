@@ -110,7 +110,7 @@ This week's Picks, in the order they appeared:
 ${listed}
 
 Return:
-- themes: one to three threads running through this week's Picks, each a headline of one short sentence and a body of at most 50 words that names the Picks it draws on by title and the Interests they bear on.
+- themes: two to four threads running through this week's Picks, or just one when the week is too thin for more, each a headline of one short sentence and a body of at most 50 words that names the Picks it draws on by title and the Interests they bear on.
 
 Use only what is given above. Include no URLs, and name no Paper that is not listed.
 `;

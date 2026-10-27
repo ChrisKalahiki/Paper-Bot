@@ -17,7 +17,7 @@ const THEMES_SCHEMA = {
     themes: {
       type: "array",
       minItems: 1,
-      maxItems: 3,
+      maxItems: 4,
       items: {
         type: "object",
         additionalProperties: false,
