@@ -57,6 +57,15 @@ Abstract: Abstract ${i + 1}.</description><arxiv:announce_type>new</arxiv:announ
   return `<?xml version='1.0' encoding='UTF-8'?><rss version="2.0"><channel>${items.join("\n")}</channel></rss>`;
 }
 
+/** The Papers of `arxivFeedOf(count)` as the arXiv query API answers a catch-up. */
+export function arxivApiOf(count: number): string {
+  const entries = Array.from({ length: count }, (_, i) => {
+    const id = `2610.${30001 + i}`;
+    return `<entry><id>http://arxiv.org/abs/${id}v1</id><title>Paper ${i + 1}</title><summary>Abstract ${i + 1}.</summary></entry>`;
+  });
+  return `<feed><opensearch:totalResults>${count}</opensearch:totalResults>${entries.join("")}</feed>`;
+}
+
 const EMPTY_RSS = "<?xml version='1.0' encoding='UTF-8'?><rss version=\"2.0\"><channel></channel></rss>";
 
 /** Every source answering with nothing new, keyed by URL prefix. */
@@ -123,7 +132,7 @@ export const fakeCodex =
       }),
     );
 
-/** A fake `claude` writing fixed prose for each Pick or Keep. */
+/** A fake `claude` writing fixed prose for each Pick, Keep or Weekly Briefing's themes. */
 export const fakeClaude: Handler = (argv, stdin) =>
   ok(
     JSON.stringify({
@@ -133,10 +142,12 @@ export const fakeClaude: Handler = (argv, stdin) =>
       result: "",
       structured_output: argv.some((arg) => arg.includes('"learnings"'))
         ? { header: `Header of ${idsIn(stdin)[0]}`, learnings: [`First Learning of ${idsIn(stdin)[0]}`, `Second Learning of ${idsIn(stdin)[0]}`] }
-        : {
-            take: "Today leans toward context.",
-            picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
-          },
+        : argv.some((arg) => arg.includes('"themes"'))
+          ? { themes: [{ headline: "Context is the week's thread.", body: `${idsIn(stdin).length} Picks circle it.` }] }
+          : {
+              take: "Today leans toward context.",
+              picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
+            },
     }),
   );
 

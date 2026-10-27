@@ -117,6 +117,20 @@ export type KeepablePick = {
 /** A Paper Chris ticked Keep: `dump` once its Dump is written, else the `error` of the last try, retried next Scan. */
 export type KeepRow = { paper: string; scanId: number; briefing: string; dump: string | null; error: string | null; at: string };
 
+/** A Pick as a Weekly Briefing lists it: `briefing` is the Daily Briefing it appeared in; `kept` once its Keep's Dump is written. */
+export type WeekPick = {
+  paper: string;
+  title: string;
+  url: string;
+  score: number;
+  interests: string[];
+  wildcard: boolean;
+  why: string;
+  summary: string;
+  briefing: string;
+  kept: boolean;
+};
+
 export type PickRow = { scanId: number; paper: string; title: string; rank: number; interests: string[]; why: string; summary: string };
 
 export type Store = {
@@ -125,6 +139,7 @@ export type Store = {
    * set; when it is more, nothing is merged.
    */
   matchKnown(candidate: Candidate): number[];
+  /** `date` is the day a Daily Scan's Briefing is named for, or the Monday of the week a Weekly Scan covers. */
   startScan(kind: ScanKind, date: string, at: Date): number;
   /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score, and leaves pending. */
   saveRankings(scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: Date): void;
@@ -141,6 +156,8 @@ export type Store = {
   settleScan(scanId: number, settlement: Settlement, picks: PickRecord[]): void;
   scans(): ScanRow[];
   picks(): PickRow[];
+  /** The Picks of Daily Briefings dated `from` to `to` (`YYYY-MM-DD`, both included), by date and then rank. */
+  weekPicks(from: string, to: string): WeekPick[];
   /** Briefings written by Scans dated `date` (`YYYY-MM-DD`) or later, oldest first. */
   briefingsSince(date: string): string[];
   /** Every Paper ever Picked, once each, with what its first Pick said. */
@@ -287,6 +304,17 @@ export function openStore(path: string): Store {
         )
         .all()
         .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[] })),
+    weekPicks: (from, to) =>
+      db
+        .query<Omit<WeekPick, "interests" | "wildcard" | "kept"> & { interests: string; wildcard: number; kept: number }, [string, string]>(
+          `SELECT ${primaryIdOf} AS paper, papers.title, papers.url, scores.score, scores.interests, scores.wildcard, picks.why, picks.summary, scans.briefing,
+             EXISTS (SELECT 1 FROM keeps WHERE keeps.paper_id = picks.paper_id AND keeps.dump IS NOT NULL) AS kept
+           FROM picks JOIN scans ON scans.id = picks.scan_id JOIN papers ON papers.id = picks.paper_id JOIN scores ON scores.paper_id = picks.paper_id
+           WHERE scans.kind = 'daily' AND scans.outcome = 'written' AND scans.date BETWEEN ? AND ?
+           ORDER BY scans.date, scans.id, picks.rank`,
+        )
+        .all(from, to)
+        .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[], wildcard: row.wildcard === 1, kept: row.kept === 1 })),
     briefingsSince: (date) =>
       db
         .query<{ briefing: string }, [string]>("SELECT briefing FROM scans WHERE briefing IS NOT NULL AND date >= ? ORDER BY date, id")

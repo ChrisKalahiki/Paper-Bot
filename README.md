@@ -4,7 +4,7 @@ paper-bot finds new research Papers in Chris's Interests and writes Briefings ab
 
 ## Daily Scan
 
-`paper-bot scan --daily` (or `paper-bot scan`) is one Daily Scan:
+`paper-bot scan --daily` is one Daily Scan:
 
 1. reads the Interests Note, `Research/Briefings/Interests.md`, with `brain-dump show --full`. Each `## <Interest>` heading is one Interest: the paragraph under it, then optional `- Venues:` (comma-separated) and `- Avoid:` (semicolon-separated) bullets. `## Wildcards` with "Up to N per Daily Briefing" sets the Wildcard cap (1 when it gives no number; no section means no Wildcards). A missing note, or one with no Interests, fails the Scan before anything is fetched. Unreadable bullets and Venues missing from the config go on an "Interests Note issues" line at the foot of the Briefing, and the Scan goes ahead;
 2. fetches Candidates from every source at once: today's arXiv announcement for the configured categories (one combined RSS feed, new and cross-listed Papers); OpenAlex works published in the last 14 days in Education or HCI, plus this and last year's works from the Venues the Interests watch; ERIC's Higher Education records added this year; the newest ICML volume on PMLR; and the JMLR feed. A failed source is recorded and skipped; the Scan fails only when every source fails. Pointers are read alongside and add text signals, never Candidates of their own: the day's HF daily papers ("on HF daily papers"), DeepMind research pages through their JSON-LD `sameAs` link, new Anthropic `/research` posts through the first Paper they link, and OpenAI `Research`/`Publication` feed items by title ("announced by <lab>"). Each lab post is read once; the `lab_posts` table remembers which. A lab Paper with no arXiv id or DOI, such as a transformer-circuits.pub Paper from the last 14 days or a PDF an Anthropic post links, is a Candidate identified by its URL. OpenAlex works published in a configured Venue carry "accepted at <Venue>". A failed pointer is recorded and never fails the Scan;
@@ -22,6 +22,12 @@ Each source fetch and each `codex exec` or `claude -p` call that fails (a timeou
 After missed or failed days, a Scan catches up. arXiv counts as covered through the date of the last Daily Scan that didn't fail and read arXiv. When that is before yesterday, the Scan asks the arXiv query API (`submittedDate`, one request per 3 seconds) for every Paper submitted since 3 days before that date (the oldest deadline its RSS feed could have ended at), at most 7 days back, in place of the RSS feed; Papers already stored or pending drop out, and reads HF daily papers for each date it covers. It writes one Daily Briefing named for today, still with at most 5 Picks, whose take starts "Covers Oct 24–26." The first Scan is an ordinary one: arXiv's latest announcement, and OpenAlex and ERIC's whole windows, ranked up to the batch cap. Each Scan deletes the abstracts of Papers first seen over 30 days ago that were never Picked, and its logs older than 90 days.
 
 It exits 1 when the Scan failed. Picks are chosen from the scores saved since the last Scan that wrote or skipped its Briefing, so running `paper-bot scan --daily` again after a failed Scan reuses its scores instead of ranking again, and is safe to repeat. Each Scan logs to `~/Library/Logs/paper-bot/<date>-daily.log`, including each command's exit code and duration.
+
+## Weekly Scan
+
+`paper-bot scan --weekly` is one Weekly Scan of the previous ISO week (Monday to Sunday, in the system time zone). It fetches and ranks nothing: it reads the Picks of that week's Daily Briefings from the store, has `claude -p` write two to four themes from them (one for a thin week), and writes the Weekly Briefing with `brain-dump write-briefing` to `Research/Briefings/Weekly/<YYYY-Www> Weekly Briefing.md`, named by ISO week-year (the week of 1 Jan 2027 is `2026-W53`). The Briefing holds the themes, the Interests with no Pick that week, a table of Picks and Keeps per Interest (and Wildcards), the top 5 Picks not yet Kept with the same `- [ ] Keep … ^pick-<id>` lines as a Daily Briefing, the week's Picks already Kept, and links to its Daily Briefings. A week with no Picks is recorded as skipped and writes no note. The `scans` row of a Weekly Scan is dated by the Monday of the week it covers; it logs to `~/Library/Logs/paper-bot/<date>-weekly.log`.
+
+`paper-bot scan` with no flag is what the schedule starts: the Daily Scan, then the Weekly Scan of last week unless a Weekly Scan already wrote or skipped it. That is every Monday, and any later day when Monday's was missed or failed; only last week is caught up. It exits 1 when either Scan failed.
 
 ## Setup
 
@@ -45,6 +51,28 @@ The config lives at `$XDG_CONFIG_HOME/paper-bot/config.json` (default `~/.config
 The store is SQLite at `$XDG_DATA_HOME/paper-bot/paper-bot.db` (default `~/.local/share`); `PAPER_BOT_DB` overrides the path.
 
 `codex` and `claude` must be logged in, and `brain-dump` must have `write-briefing` and the Briefing origin of `write-dump`.
+
+## Schedule
+
+`launchd/dev.paper-bot.scan.plist` is a LaunchAgent template (label `dev.paper-bot.scan`) that starts `paper-bot scan` at 06:00 local time every day, or when the Mac wakes if it was asleep then. Install it from the checkout launchd should use, in a shell where `codex` is on PATH (with nvm, after `nvm use`):
+
+```sh
+bun scripts/install-launch-agent.ts
+launchctl print gui/$(id -u)/dev.paper-bot.scan   # loaded; "runs" counts the Scans started so far
+```
+
+The script fills in the template with this checkout, this `bun`, your home folder and username, and the folder holding `codex`, writes it to `~/Library/LaunchAgents/dev.paper-bot.scan.plist`, creates `~/Library/Logs/paper-bot`, and loads it into your login session with `launchctl bootstrap`, replacing an earlier install. The agent sets `HOME`, `USER` and `LOGNAME` (without them `claude -p` reports "Not logged in") and a `PATH` of the `codex` folder (its `node` too), bun's folder, `~/.local/bin` (`claude`, `brain-dump`) and the system folders. `claude` reads its login from the Keychain, so you must be logged in to the Mac for a Scan to reach it.
+
+The `codex` folder is written into the plist. With nvm it names the Node version, so after an nvm upgrade the Scans fail with `cannot start codex`: install again. Install again too after moving the checkout or reinstalling bun.
+
+To start a Scan now: `launchctl kickstart gui/$(id -u)/dev.paper-bot.scan`. To uninstall:
+
+```sh
+launchctl bootout gui/$(id -u)/dev.paper-bot.scan
+rm ~/Library/LaunchAgents/dev.paper-bot.scan.plist
+```
+
+Logs are in `~/Library/Logs/paper-bot/`: each Scan's own log (`<date>-daily.log`, `<date>-weekly.log`), and what launchd caught of its output, `launchd.out.log` (how each Scan settled) and `launchd.err.log` (why a Scan failed or could not start).
 
 ## Checks
 

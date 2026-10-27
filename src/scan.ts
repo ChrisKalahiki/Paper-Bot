@@ -121,7 +121,7 @@ function keepSmall({ store, logDir }: ScanDeps, at: Date, log: ScanLog): void {
   if (logs > 0) log(`Deleted Scan logs from before ${localDate(daysBefore(LOG_DAYS))}: ${logs}`);
 }
 
-async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
+export async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
   const note = parseInterestsNote(await brainDump.show(INTERESTS_NOTE), knownVenues);
   if (note.interests.length === 0) throw new PaperBotError(`${INTERESTS_NOTE} lists no Interests`);
   return note;
