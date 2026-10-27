@@ -1,6 +1,7 @@
-import type { Candidate } from "../candidate.ts";
+import { arxivIds, type Candidate } from "../candidate.ts";
 import { PaperBotError } from "../errors.ts";
 import type { Fetch } from "../http.ts";
+import { collapse, element, rssItems } from "./rss.ts";
 
 const RSS_BASE = "https://rss.arxiv.org/rss/";
 
@@ -15,7 +16,7 @@ export async function fetchArxivCandidates(fetch: Fetch, categories: string[]): 
 }
 
 function parseArxivRss(xml: string): Candidate[] {
-  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].flatMap(([, item = ""]) => {
+  return rssItems(xml).flatMap((item) => {
     const announceType = element(item, "arxiv:announce_type");
     const link = element(item, "link");
     const id = link?.match(/arxiv\.org\/abs\/(.+?)(?:v\d+)?$/)?.[1];
@@ -24,7 +25,7 @@ function parseArxivRss(xml: string): Candidate[] {
     return [
       {
         source: "arxiv" as const,
-        ids: [`arxiv:${id}`, `doi:10.48550/arxiv.${id.toLowerCase()}`],
+        ids: arxivIds(id),
         title: collapse(title),
         url: link,
         abstract: collapse((element(item, "description") ?? "").replace(/^[\s\S]*?Abstract:/, "")),
@@ -32,23 +33,3 @@ function parseArxivRss(xml: string): Candidate[] {
     ];
   });
 }
-
-function element(xml: string, tag: string): string | undefined {
-  const text = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`))?.[1];
-  if (text === undefined) return undefined;
-  const cdata = text.match(/^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/)?.[1];
-  return (cdata ?? decodeEntities(text)).trim();
-}
-
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-}
-
-const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Proceedings of Machine Learning Research</title>
+    <link>https://proceedings.mlr.press/</link>
+    <item>
+      <title>Proceedings of AISTATS 2026</title>
+      <link>https://proceedings.mlr.press/v310/</link>
+      <pubDate>Mon, 19 Oct 2026 00:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Proceedings of ICML 2026</title>
+      <link>https://proceedings.mlr.press/v306/</link>
+      <pubDate>Tue, 29 Sep 2026 00:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Proceedings of ICML 2025</title>
+      <link>https://proceedings.mlr.press/v267/</link>
+      <pubDate>Mon, 06 Oct 2025 00:00:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

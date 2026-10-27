@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Proceedings of ICML 2026</title>
+    <link>https://proceedings.mlr.press/v306/</link>
+    <item>
+      <title>Memory Tokens for Long-Horizon Agents</title>
+      <description>We give agents a learned memory &lt;b&gt;budget&lt;/b&gt; that
+carries context across tool calls.</description>
+      <pubDate>Tue, 29 Sep 2026 00:00:00 +0000</pubDate>
+      <link>https://proceedings.mlr.press/v306/lee26a.html</link>
+      <guid isPermaLink="true">https://proceedings.mlr.press/v306/lee26a.html</guid>
+    </item>
+    <item>
+      <title>Sparse World Models</title>
+      <description></description>
+      <pubDate>Tue, 29 Sep 2026 00:00:00 +0000</pubDate>
+      <link>https://proceedings.mlr.press/v306/ono26b.html</link>
+    </item>
+  </channel>
+</rss>

@@ -1,7 +1,5 @@
-import { type Candidate, primaryId, type SourceName } from "./candidate.ts";
+import { type Candidate, primaryId, SOURCE_LABELS, type SourceName } from "./candidate.ts";
 import { localDate, longDate } from "./clock.ts";
-
-const SOURCE_LABELS: Record<SourceName, string> = { arxiv: "arXiv" };
 
 export function dailyBriefingPath(at: Date): string {
   return `Research/Briefings/Daily/${localDate(at)} Daily Briefing.md`;

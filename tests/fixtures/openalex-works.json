@@ -1,0 +1,38 @@
+{
+  "meta": { "count": 3, "db_response_time_ms": 41, "page": null, "per_page": 200, "next_cursor": null, "groups_count": null },
+  "results": [
+    {
+      "id": "https://openalex.org/W4416000001",
+      "doi": "https://doi.org/10.1145/3772318.3790001",
+      "title": "Students Steering LLM Tutors: A Field Study",
+      "publication_date": "2026-10-20",
+      "ids": { "openalex": "https://openalex.org/W4416000001", "doi": "https://doi.org/10.1145/3772318.3790001" },
+      "primary_location": { "landing_page_url": "https://doi.org/10.1145/3772318.3790001", "source": { "id": "https://openalex.org/S4363607743", "display_name": "CHI" } },
+      "locations": [
+        { "landing_page_url": "https://doi.org/10.1145/3772318.3790001" },
+        { "landing_page_url": "http://arxiv.org/abs/2609.11111v2" }
+      ],
+      "abstract_inverted_index": { "Students": [0], "steer": [1], "tutors": [2, 5], "and": [3], "trust": [4] }
+    },
+    {
+      "id": "https://openalex.org/W4416000002",
+      "doi": "https://doi.org/10.48550/arXiv.2610.32109",
+      "title": "Context or Knowledge: How LLMs Attribute Their Own Answers",
+      "publication_date": "2026-10-26",
+      "ids": { "openalex": "https://openalex.org/W4416000002", "doi": "https://doi.org/10.48550/arxiv.2610.32109" },
+      "primary_location": { "landing_page_url": "http://arxiv.org/abs/2610.32109", "source": { "id": "https://openalex.org/S4306400194", "display_name": "arXiv" } },
+      "locations": [{ "landing_page_url": "http://arxiv.org/abs/2610.32109" }],
+      "abstract_inverted_index": { "Editing": [0], "the": [1], "cache": [2] }
+    },
+    {
+      "id": "https://openalex.org/W4416000003",
+      "doi": null,
+      "title": "Assessment Policy for Generative AI",
+      "publication_date": "2026-10-22",
+      "ids": { "openalex": "https://openalex.org/W4416000003" },
+      "primary_location": { "landing_page_url": "https://example.edu/policy", "source": null },
+      "locations": [{ "landing_page_url": "https://example.edu/policy" }],
+      "abstract_inverted_index": null
+    }
+  ]
+}
