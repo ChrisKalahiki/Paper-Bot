@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { messageOf, PaperBotError } from "./errors.ts";
 
 /** `exitCode` is null when the command was killed, as on a timeout. */
@@ -20,6 +21,17 @@ export const spawnExec: Exec = async (argv, { stdin, timeoutMs }) => {
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { exitCode: child.signalCode === null ? exitCode : null, stdout, stderr };
 };
+
+/** An Exec that logs each command's exit code, or its timeout, and how long it took. */
+export function loggingExec(exec: Exec, log: (message: string) => void): Exec {
+  return async (argv, options) => {
+    const began = Date.now();
+    const result = await exec(argv, options);
+    const how = result.exitCode === null ? "timed out" : `exited ${result.exitCode}`;
+    log(`${basename(argv[0] ?? "")} ${argv[1] ?? ""} ${how} after ${Date.now() - began} ms`);
+    return result;
+  };
+}
 
 /** The command's stdout, or a PaperBotError naming `what` with its exit status and the first line it printed. */
 export async function runCommand(exec: Exec, what: string, argv: string[], options: { stdin?: string; timeoutMs: number }): Promise<string> {

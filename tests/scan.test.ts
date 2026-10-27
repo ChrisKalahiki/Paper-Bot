@@ -656,6 +656,20 @@ describe("a Daily Scan that meets failures", () => {
     expect({ outcome: result.outcome, codex: codexCalls(commands).length, waits: sleep.waits }).toEqual({ outcome: "written", codex: 2, waits: [30_000] });
   });
 
+  test("logs each LLM call's exit code and duration", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED, codex: failingFirst({ exitCode: null, stdout: "", stderr: "" }, fakeCodex(PICKED)) });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    const calls = lines.flatMap((line) => line.match(/(codex exec|claude -p) (exited \S+|timed out) after \d+ ms$/)?.slice(1, 3).join(" ") ?? []);
+    expect(calls).toEqual(["codex exec timed out", "codex exec exited 0", "claude -p exited 0"]);
+  });
+
   test("retries a writing call that reports is_error once after a short wait", async () => {
     // #given
     const { storePath, logDir } = sandbox();

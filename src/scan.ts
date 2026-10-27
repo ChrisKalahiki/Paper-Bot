@@ -2,7 +2,7 @@ import { type BrainDump, brainDumpCli } from "./brain-dump.ts";
 import { dailyBriefingPath, renderDailyBriefing } from "./briefing.ts";
 import { type Candidate, mergeCandidates, primaryId, type Ranking, SOURCE_LABELS, type SourceName } from "./candidate.ts";
 import { type Clock, localDate } from "./clock.ts";
-import type { Exec } from "./command.ts";
+import { type Exec, loggingExec } from "./command.ts";
 import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
 import type { Fetch } from "./http.ts";
@@ -31,9 +31,10 @@ export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string 
  * Reads the Interests, fetches and ranks today's Candidates, and writes a Daily Briefing of the Picks.
  * The Scan is skipped when nothing clears the bar, and failed when it cannot settle its Briefing.
  */
-export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
-  const { config, store, clock } = deps;
-  const log = openScanLog(deps.logDir, "daily", clock);
+export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
+  const { config, store, clock } = scanDeps;
+  const log = openScanLog(scanDeps.logDir, "daily", clock);
+  const deps = { ...scanDeps, exec: loggingExec(scanDeps.exec, log) };
   const startedAt = clock();
   const scanId = store.startScan("daily", localDate(startedAt), startedAt);
   const sources: SourceResults = {};
