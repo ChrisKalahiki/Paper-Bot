@@ -58,9 +58,10 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     const pending = store.pending();
     const candidates = dropKnown([...pending, ...fetched], store, log);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched and ${pending.length} pending`);
-    if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
-    const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, failures, log);
+    if (candidates.length > 0) await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, failures, log);
+    const ranked = store.unsettledRankings();
+    if (ranked.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
@@ -167,10 +168,9 @@ async function rankAll(
   scanId: number,
   failures: string[],
   log: ScanLog,
-): Promise<Ranked[]> {
+): Promise<void> {
   const { store, clock } = deps;
   const { size, cap } = deps.config.batch;
-  const ranked: Ranked[] = [];
   const batches: Candidate[][] = [];
   for (let start = 0; start < Math.min(candidates.length, size * cap); start += size) batches.push(candidates.slice(start, start + size));
   const overflow = candidates.slice(size * cap);
@@ -191,7 +191,6 @@ async function rankAll(
         return ranking === undefined ? [] : [{ candidate, ranking }];
       });
       store.saveRankings(scanId, scored, clock());
-      ranked.push(...scored);
       log(`${label}: ${scored.length} of ${batch.length} scored in ${Date.now() - began} ms`);
     } catch (error) {
       if (!(error instanceof PaperBotError)) throw error;
@@ -202,7 +201,6 @@ async function rankAll(
     }
   }
   if (failed === batches.length) throw new PaperBotError("every ranking batch failed");
-  return ranked;
 }
 
 /**

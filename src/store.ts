@@ -120,6 +120,11 @@ export type Store = {
   startScan(kind: ScanKind, date: string, at: Date): number;
   /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score, and leaves pending. */
   saveRankings(scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: Date): void;
+  /**
+   * The rankings Daily Scans saved since the last one that settled as written or skipped, in the order they were
+   * ranked: the current Scan's, and those of failed Scans before it, so a re-run reuses their scores.
+   */
+  unsettledRankings(): { candidate: Candidate; ranking: Ranking }[];
   /** Candidates a Scan could not rank, over the batch cap or in a failed batch, oldest first. */
   pending(): Candidate[];
   /** Adds Candidates to pending, or refreshes those already there. */
@@ -167,6 +172,7 @@ export function openStore(path: string): Store {
     `INSERT INTO keeps (paper_id, scan_id, briefing, dump, error, at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error, at = excluded.at`,
   );
+  const idsOf = db.query<{ id: string }, [number]>("SELECT id FROM paper_ids WHERE paper_id = ? ORDER BY rowid");
   const deletePending = db.query("DELETE FROM pending WHERE id = ?");
   const upsertPending = db.query(
     `INSERT INTO pending (id, ids, source, title, authors, url, abstract, since) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -218,6 +224,24 @@ export function openStore(path: string): Store {
       return row.id;
     },
     saveRankings: (scanId, ranked, at) => saveRankings(scanId, ranked, at.toISOString()),
+    unsettledRankings: () =>
+      db
+        .query<
+          { id: number; source: Candidate["source"]; title: string; authors: string | null; url: string; abstract: string; score: number; interests: string; why: string; wildcard: number },
+          []
+        >(
+          `SELECT papers.id, papers.source, papers.title, papers.authors, papers.url, coalesce(papers.abstract, '') AS abstract,
+             scores.score, scores.interests, scores.why, scores.wildcard
+           FROM scores JOIN papers ON papers.id = scores.paper_id JOIN scans ON scans.id = scores.scan_id
+           WHERE scans.kind = 'daily'
+             AND scans.id > coalesce((SELECT max(id) FROM scans WHERE kind = 'daily' AND outcome IN ('written', 'skipped')), 0)
+           ORDER BY papers.id`,
+        )
+        .all()
+        .map(({ id, authors, score, interests, why, wildcard, ...rest }) => ({
+          candidate: { ...rest, ids: idsOf.all(id).map((row) => row.id), ...(authors === null ? {} : { authors: JSON.parse(authors) as string[] }) },
+          ranking: { score, interests: JSON.parse(interests) as string[], why, wildcard: wildcard === 1 },
+        })),
     pending: () =>
       db
         .query<{ ids: string; source: Candidate["source"]; title: string; authors: string | null; url: string; abstract: string }, []>(

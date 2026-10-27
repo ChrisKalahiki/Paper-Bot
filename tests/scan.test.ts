@@ -751,6 +751,48 @@ describe("a Daily Scan that meets failures", () => {
     });
   });
 
+  describe("re-run after its Briefing write failed", () => {
+    async function failedThenRerun() {
+      const { storePath, logDir } = sandbox();
+      const writeFails = fakeCommands({ rankings: PICKED, claude: () => ({ exitCode: 1, stdout: "", stderr: "You've hit your session limit" }) });
+      await scan({ commands: writeFails, storePath, logDir });
+      const rerun = fakeCommands({ rankings: PICKED });
+      const result = await scan({ commands: rerun, storePath, logDir });
+      return { storePath, logDir, rerun, result };
+    }
+
+    test("writes the Briefing from the saved scores without ranking again", async () => {
+      // #given
+      const { rerun, result, storePath } = await failedThenRerun();
+
+      // #when
+      const picks = stored(storePath).picks.map((pick) => pick.paper);
+
+      // #then
+      expect({ result, codex: codexCalls(rerun).length, picks }).toEqual({
+        result: { outcome: "written", briefing: BRIEFING },
+        codex: 0,
+        picks: ["arxiv:2610.31679", "arxiv:2610.32109"],
+      });
+    });
+
+    test("is safe to repeat: a third run writes nothing and records no Picks twice", async () => {
+      // #given
+      const { storePath, logDir, rerun } = await failedThenRerun();
+      const third = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(rerun.vault) });
+
+      // #when
+      const result = await scan({ commands: third, storePath, logDir });
+
+      // #then
+      expect({ result, written: third.calls.some(({ argv }) => argv[1] === "write-briefing"), picks: stored(storePath).picks.length }).toEqual({
+        result: { outcome: "skipped", reason: "no new Candidates" },
+        written: false,
+        picks: 2,
+      });
+    });
+  });
+
   test("logs each LLM call's exit code and duration", async () => {
     // #given
     const { storePath, logDir } = sandbox();
