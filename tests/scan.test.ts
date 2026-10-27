@@ -1210,7 +1210,7 @@ describe("a Daily Scan after missed or failed days", () => {
       // #then
       expect({ rss: fetch.urls.some((url) => url.startsWith(RSS)), windows: submittedWindows(fetch.urls) }).toEqual({
         rss: false,
-        windows: ["202610240000+TO+202610261200"],
+        windows: ["202610210000+TO+202610261200"],
       });
     });
 
@@ -1235,7 +1235,7 @@ describe("a Daily Scan after missed or failed days", () => {
 
     // #then
     expect({ windows: submittedWindows(fetch.urls), take: take(commands) }).toEqual({
-      windows: ["202610220000+TO+202610261200"],
+      windows: ["202610190000+TO+202610261200"],
       take: "Covers Oct 23–26. Today leans toward context.",
     });
   });
@@ -1299,7 +1299,7 @@ describe("a Daily Scan after missed or failed days", () => {
     await scan({ ...setup, commands: fakeCommands(), fetch });
 
     // #then
-    expect(submittedWindows(fetch.urls)).toEqual(["202610240000+TO+202610261200"]);
+    expect(submittedWindows(fetch.urls)).toEqual(["202610210000+TO+202610261200"]);
   });
 
   test("a catch-up Briefing still has at most 5 Picks", async () => {

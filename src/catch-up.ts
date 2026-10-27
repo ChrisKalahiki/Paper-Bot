@@ -4,9 +4,15 @@ import { MONTHS } from "./clock.ts";
 const MAX_DAYS = 7;
 
 /**
+ * The RSS feed on a date can end with submissions up to 3 days older: Monday's feed holds Friday's deadline, the
+ * weekend's Thursday's.
+ */
+const FEED_LAG_DAYS = 3;
+
+/**
  * The days a Scan catches up on, as noon in the system time zone: those since arXiv was last covered, today last, at
- * most 7. `submittedFrom` starts a day before the first, so the arXiv window holds that day's whole announcement;
- * Papers already stored drop out.
+ * most 7. `submittedFrom` reaches back to the last covered feed's oldest possible deadline, at most 7 days; Papers
+ * already stored or pending drop out.
  */
 export type CatchUp = { days: Date[]; submittedFrom: Date };
 
@@ -18,9 +24,9 @@ export function catchUpSince(coveredThrough: string | undefined, today: string):
   if (coveredThrough === undefined) return undefined;
   const dates: string[] = [];
   for (let date = today; date > coveredThrough && dates.length < MAX_DAYS; date = addDays(date, -1)) dates.unshift(date);
-  const [first] = dates;
-  if (first === undefined || dates.length < 2) return undefined;
-  return { days: dates.map(localNoon), submittedFrom: new Date(`${addDays(first, -1)}T00:00:00Z`) };
+  if (dates.length < 2) return undefined;
+  const from = [addDays(coveredThrough, -FEED_LAG_DAYS), addDays(today, -MAX_DAYS)].sort().at(-1);
+  return { days: dates.map(localNoon), submittedFrom: new Date(`${from}T00:00:00Z`) };
 }
 
 /** `Covers Oct 24–26.`, or `Covers Oct 30–Nov 2.` across months. */
