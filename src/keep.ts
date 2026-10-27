@@ -1,17 +1,18 @@
 import type { BrainDump, KeptDump } from "./brain-dump.ts";
 import { blockIdOf } from "./briefing.ts";
-import { localDate } from "./clock.ts";
+import { DAY_MS, localDate } from "./clock.ts";
 import { PaperBotError } from "./errors.ts";
 import { WILDCARDS_HEADING } from "./interests.ts";
 import type { ScanLog } from "./log.ts";
 import { keepPrompt } from "./prompts.ts";
 import { retryOnce } from "./retry.ts";
 import type { ScanDeps } from "./scan.ts";
+import type { ScanContext } from "./scan-context.ts";
 import type { KeepablePick } from "./store.ts";
 import { claudeJson, oneLine } from "./write.ts";
 
-const KEEP_WINDOW_DAYS = 30;
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far back a Scan reads Briefings for ticked Keeps. */
+export const KEEP_WINDOW_DAYS = 30;
 
 export const KEEP_SCHEMA = {
   type: "object",
@@ -39,11 +40,11 @@ export function tickedKeeps(markdown: string): TickedKeep[] {
  * retried each Scan until it can't be: once its Keep line is unticked or its Briefing is over 30 days old, it is dropped.
  * Returns the Briefing footer lines: Keeps that failed, to be retried next Scan, and Keep lines that were ignored.
  */
-export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: number, log: ScanLog): Promise<string[]> {
+export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, { scanId, log }: Pick<ScanContext, "scanId" | "log">): Promise<string[]> {
   const { store, clock } = deps;
   const picks = new Map(store.keepablePicks().map((pick) => [blockIdOf(pick.paper), pick]));
   const handled = new Set(store.keeps().flatMap(({ paper, dump }) => (dump === null ? [] : [paper])));
-  const briefings = store.briefingsSince(localDate(new Date(clock().getTime() - KEEP_WINDOW_DAYS * DAY_MS)));
+  const briefings = store.writtenBriefings({ from: localDate(new Date(clock().getTime() - KEEP_WINDOW_DAYS * DAY_MS)) });
   const ticked = new Set<string>();
   const unread = new Set<string>();
   const issues: string[] = [];
@@ -98,8 +99,9 @@ async function draftKeep(deps: ScanDeps, pick: KeepablePick, log: ScanLog): Prom
     throw new PaperBotError("claude -p returned a Keep in the wrong shape");
   }
   const { learnings } = output;
-  if (!Array.isArray(learnings) || learnings.length < 2 || learnings.length > 4 || !learnings.every((learning) => typeof learning === "string")) {
-    throw new PaperBotError("claude -p returned a Keep without 2 to 4 Learnings");
+  const { minItems, maxItems } = KEEP_SCHEMA.properties.learnings;
+  if (!Array.isArray(learnings) || learnings.length < minItems || learnings.length > maxItems || !learnings.every((learning) => typeof learning === "string")) {
+    throw new PaperBotError(`claude -p returned a Keep without ${minItems} to ${maxItems} Learnings`);
   }
   return { header: output.header, learnings };
 }

@@ -8,14 +8,12 @@ import { PaperBotError, UsageError } from "./errors.ts";
 import { httpFetch } from "./http.ts";
 import { picksReport } from "./picks.ts";
 import { systemSleep } from "./retry.ts";
-import { dailyScan, type ScanDeps } from "./scan.ts";
+import { dailyScan, SCAN_NAMES, type ScanDeps } from "./scan.ts";
 import { type SettledScan, scheduledScans } from "./schedule.ts";
-import { openStore, type ScanKind } from "./store.ts";
+import { openStore } from "./store.ts";
 import { weeklyScan } from "./weekly.ts";
 
 const USAGE = "usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json";
-
-const SCAN_NAMES: Record<ScanKind, string> = { daily: "Daily Scan", weekly: "Weekly Scan" };
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -36,7 +34,7 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-/** Runs the Scans against the real config, store, sources and CLIs, printing how each settled; exits 1 if any failed. */
+/** Starts the Scans against the real config, store, sources and CLIs, printing how each settled; exits 1 if any failed. */
 async function scan(scans: (deps: ScanDeps) => Promise<SettledScan[]>): Promise<number> {
   const where = paths(process.env);
   const config = loadConfig(where.config);

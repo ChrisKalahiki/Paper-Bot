@@ -30,7 +30,8 @@ export function dayAndMonth(at: Date): string {
 /** An ISO week: named `YYYY-Www` by its ISO week-year, from local midnight on its Monday to its Sunday. */
 export type IsoWeek = { name: string; monday: Date; sunday: Date };
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
 
 /** The ISO week, in the system time zone, before the one `at` falls in. */
 export function lastWeek(at: Date): IsoWeek {

@@ -155,7 +155,7 @@ export type Store = {
   saveRankings(scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: Date): void;
   /**
    * The rankings Daily Scans saved since the last one that settled as written or skipped, in the order they were
-   * ranked: the current Scan's, and those of failed Scans before it, so a re-run reuses their scores.
+   * ranked: the current Scan's, and those of failed Scans before it, so a Scan after a failed one reuses their scores.
    */
   unsettledRankings(): { candidate: Candidate; ranking: Ranking }[];
   /** Candidates a Scan could not rank, over the batch cap or in a failed batch, oldest first. */
@@ -170,8 +170,8 @@ export type Store = {
   picks(): PickRow[];
   /** The Picks of Daily Briefings dated `from` to `to` (`YYYY-MM-DD`, both included), by date and then rank. */
   weekPicks(from: string, to: string): WeekPick[];
-  /** Briefings written by Scans dated `date` (`YYYY-MM-DD`) or later, oldest first. */
-  briefingsSince(date: string): string[];
+  /** Briefings written by Scans of `kind`, or of either, dated `from` to `to` (`YYYY-MM-DD`, both included; no end when absent), oldest first. */
+  writtenBriefings(dated: { kind?: ScanKind; from: string; to?: string }): string[];
   /** Every Paper ever Picked, once each, with what its first Pick said. */
   keepablePicks(): KeepablePick[];
   keeps(): KeepRow[];
@@ -339,10 +339,13 @@ export function openStore(path: string, { existing = false } = {}): Store {
         )
         .all(from, to)
         .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[], wildcard: row.wildcard === 1, kept: row.keptAt !== null })),
-    briefingsSince: (date) =>
+    writtenBriefings: ({ kind, from, to }) =>
       db
-        .query<{ briefing: string }, [string]>("SELECT briefing FROM scans WHERE briefing IS NOT NULL AND date >= ? ORDER BY date, id")
-        .all(date)
+        .query<{ briefing: string }, [string, string | null, string | null]>(
+          `SELECT briefing FROM scans WHERE briefing IS NOT NULL AND kind = coalesce(?3, kind) AND date >= ?1 AND date <= coalesce(?2, date)
+           ORDER BY date, id`,
+        )
+        .all(from, to ?? null, kind ?? null)
         .map((row) => row.briefing),
     keepablePicks: () =>
       db

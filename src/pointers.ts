@@ -1,12 +1,11 @@
 import { type Candidate, type PointerName, type Pointers, type Signal, SOURCE_LABELS } from "./candidate.ts";
-import { messageOf } from "./errors.ts";
 import type { Fetch } from "./http.ts";
-import type { ScanLog } from "./log.ts";
 import { fetchAnthropicPointers } from "./sources/anthropic.ts";
 import { fetchDeepMindPointers } from "./sources/deepmind.ts";
 import { fetchHfPointers } from "./sources/hf.ts";
 import { fetchOpenAiPointers } from "./sources/openai.ts";
-import type { SourceResults, Store } from "./store.ts";
+import { recordFailedSource, type ScanContext } from "./scan-context.ts";
+import type { Store } from "./store.ts";
 
 /** `days` are those the Scan covers, today last: HF daily papers is read for each. */
 export type PointerDeps = { fetch: Fetch; store: Pick<Store, "unreadPosts" | "markPostsRead">; at: Date; days: Date[] };
@@ -15,7 +14,7 @@ export type PointerDeps = { fetch: Fetch; store: Pick<Store, "unreadPosts" | "ma
  * Every pointer's Signals and lab Papers. A failed pointer is recorded and skipped, never failing the Scan, and the lab
  * posts it read stay unread for the next Scan.
  */
-export async function fetchPointers({ fetch, store, at, days }: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
+export async function fetchPointers({ fetch, store, at, days }: PointerDeps, scan: Pick<ScanContext, "sources" | "log">): Promise<Pointers> {
   const unread = (urls: string[]) => store.unreadPosts(urls);
   const pointers: Record<PointerName, () => Promise<Pointers>> = {
     hf: async () => {
@@ -32,12 +31,11 @@ export async function fetchPointers({ fetch, store, at, days }: PointerDeps, res
       try {
         const found = await fetchPointer();
         store.markPostsRead(found.read ?? [], at);
-        results[name] = { candidates: found.candidates.length };
-        log(`${SOURCE_LABELS[name]}: ${found.signals.length} signals, ${found.candidates.length} Candidates`);
+        scan.sources[name] = { candidates: found.candidates.length };
+        scan.log(`${SOURCE_LABELS[name]}: ${found.signals.length} signals, ${found.candidates.length} Candidates`);
         return found;
       } catch (error) {
-        results[name] = { error: messageOf(error) };
-        log(`${SOURCE_LABELS[name]} failed: ${messageOf(error)}`);
+        recordFailedSource(scan, name, error);
         return { candidates: [], signals: [] };
       }
     }),

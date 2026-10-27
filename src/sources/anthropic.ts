@@ -1,4 +1,5 @@
 import { type Candidate, linkIds, type Pointers } from "../candidate.ts";
+import { DAY_MS } from "../clock.ts";
 import type { Fetch } from "../http.ts";
 import { announcedBy, fetchPage, joinPointers, linksTo, pointAt, type Unread } from "./lab.ts";
 import { collapse, decodeEntities, element } from "./rss.ts";
@@ -19,7 +20,7 @@ export async function fetchAnthropicPointers(fetch: Fetch, unread: Unread, at: D
 }
 
 async function fetchCircuits(fetch: Fetch, at: Date): Promise<Candidate[]> {
-  const since = at.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const since = at.getTime() - WINDOW_DAYS * DAY_MS;
   const feed = await fetchPage(fetch, "anthropic", CIRCUITS_FEED);
   return [...feed.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].flatMap(([, entry = ""]) => {
     const title = collapse(element(entry, "title") ?? "");
