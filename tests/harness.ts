@@ -57,6 +57,15 @@ Abstract: Abstract ${i + 1}.</description><arxiv:announce_type>new</arxiv:announ
   return `<?xml version='1.0' encoding='UTF-8'?><rss version="2.0"><channel>${items.join("\n")}</channel></rss>`;
 }
 
+/** The Papers of `arxivFeedOf(count)` as the arXiv query API answers a catch-up. */
+export function arxivApiOf(count: number): string {
+  const entries = Array.from({ length: count }, (_, i) => {
+    const id = `2610.${30001 + i}`;
+    return `<entry><id>http://arxiv.org/abs/${id}v1</id><title>Paper ${i + 1}</title><summary>Abstract ${i + 1}.</summary></entry>`;
+  });
+  return `<feed><opensearch:totalResults>${count}</opensearch:totalResults>${entries.join("")}</feed>`;
+}
+
 const EMPTY_RSS = "<?xml version='1.0' encoding='UTF-8'?><rss version=\"2.0\"><channel></channel></rss>";
 
 /** Every source answering with nothing new, keyed by URL prefix. */
@@ -71,6 +80,7 @@ const EMPTY_SOURCES: Record<string, string> = {
   "https://deepmind.google/": "<html></html>",
   "https://www.anthropic.com/": "<html></html>",
   "https://transformer-circuits.pub/": '<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
+  "https://export.arxiv.org/": "<feed><opensearch:totalResults>0</opensearch:totalResults></feed>",
 };
 
 /** Recorded source responses: each URL gets the body served under its longest matching prefix, over empty answers from every source. */

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { primaryId } from "../src/candidate.ts";
+import { catchUpSince } from "../src/catch-up.ts";
+import { localDate } from "../src/clock.ts";
 import { messageOf, PaperBotError } from "../src/errors.ts";
 import type { Interest } from "../src/interests.ts";
 import { dailyPrompt, type PickInput } from "../src/prompts.ts";
@@ -14,8 +16,11 @@ import { type Criterion, grade } from "./rubric.ts";
 
 const FIXTURES = "evals/fixtures/daily";
 
-/** `at` and `since` are local date-times; a Pick's `fullText` is null when it is written from its abstract. */
-type DailyFixture = { at: string; since?: string; interests: Interest[]; picks: (PickInput & { fullText: string | null })[] };
+/**
+ * `at` is a local date-time; `coveredThrough`, set for a catch-up, is the date arXiv was last covered. A Pick's `fullText` is null when it is
+ * written from its abstract.
+ */
+type DailyFixture = { at: string; coveredThrough?: string; interests: Interest[]; picks: (PickInput & { fullText: string | null })[] };
 
 const CASES = ["normal.json", "thin.json", "catch-up.json"];
 
@@ -35,13 +40,13 @@ export function dailyEval(ask: Ask): Eval {
 }
 
 async function runCase(ask: Ask, fixture: string): Promise<CaseResult> {
-  const { at, since, interests, picks } = JSON.parse(readFileSync(join(import.meta.dir, "..", FIXTURES, fixture), "utf8")) as DailyFixture;
-  const [day, first] = [new Date(at), since === undefined ? undefined : new Date(since)];
+  const { at, coveredThrough, interests, picks } = JSON.parse(readFileSync(join(import.meta.dir, "..", FIXTURES, fixture), "utf8")) as DailyFixture;
+  const day = new Date(at);
+  const covers = catchUpSince(coveredThrough, localDate(day));
   const prompt = dailyPrompt(
     picks.map((pick) => ({ ...pick, fullText: pick.fullText ?? undefined })),
     interests,
     day,
-    first,
   );
   let reply: unknown;
   try {
@@ -51,6 +56,6 @@ async function runCase(ask: Ask, fixture: string): Promise<CaseResult> {
     return { failures: [messageOf(error)] };
   }
   const ids = picks.map(({ candidate }) => primaryId(candidate));
-  const failures = checkDaily(reply, { ids, ...(first === undefined ? {} : { covers: { from: first, to: day } }) }, prompt);
+  const failures = checkDaily(reply, { ids, ...(covers === undefined ? {} : { covers }) }, prompt);
   return { failures, grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)) };
 }

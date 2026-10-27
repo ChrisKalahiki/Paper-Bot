@@ -8,16 +8,21 @@ import { fetchHfPointers } from "./sources/hf.ts";
 import { fetchOpenAiPointers } from "./sources/openai.ts";
 import type { SourceResults, Store } from "./store.ts";
 
-export type PointerDeps = { fetch: Fetch; store: Pick<Store, "unreadPosts" | "markPostsRead">; at: Date };
+/** `days` are those the Scan covers, today last: HF daily papers is read for each. */
+export type PointerDeps = { fetch: Fetch; store: Pick<Store, "unreadPosts" | "markPostsRead">; at: Date; days: Date[] };
 
 /**
  * Every pointer's Signals and lab Papers. A failed pointer is recorded and skipped, never failing the Scan, and the lab
  * posts it read stay unread for the next Scan.
  */
-export async function fetchPointers({ fetch, store, at }: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
+export async function fetchPointers({ fetch, store, at, days }: PointerDeps, results: SourceResults, log: ScanLog): Promise<Pointers> {
   const unread = (urls: string[]) => store.unreadPosts(urls);
   const pointers: Record<PointerName, () => Promise<Pointers>> = {
-    hf: () => fetchHfPointers(fetch, at),
+    hf: async () => {
+      const signals = [];
+      for (const day of days) signals.push(...(await fetchHfPointers(fetch, day)).signals);
+      return { candidates: [], signals };
+    },
     deepmind: () => fetchDeepMindPointers(fetch, unread),
     anthropic: () => fetchAnthropicPointers(fetch, unread, at),
     openai: () => fetchOpenAiPointers(fetch),

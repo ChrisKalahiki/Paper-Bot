@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { avoidedTermsIn } from "../scripts/glossary.ts";
+import { type CatchUp, coversLine } from "../src/catch-up.ts";
 import { dayAndMonth, localDate } from "../src/clock.ts";
 import { KEEP_SCHEMA } from "../src/keep.ts";
 import { THEMES_SCHEMA } from "../src/weekly.ts";
@@ -108,8 +109,8 @@ function namesDay(text: string, day: Date): boolean {
 export type DailyExpectation = {
   /** The Picks' ids, as the prompt gives them. */
   ids: string[];
-  /** The days a catch-up Briefing covers, which its take must name. */
-  covers?: { from: Date; to: Date };
+  /** What a catch-up Briefing covers; its take, as rendered after the covers line, must name the first and last day. */
+  covers?: CatchUp;
 };
 
 /** Every way a Daily Briefing's prose misses the checks; empty when it passes. `prompt` is what the writer was given. */
@@ -129,7 +130,10 @@ export function checkDaily(reply: unknown, expected: DailyExpectation, prompt: s
     if (sentences(summary) > 2) failures.push(`the summary of ${id} has ${sentences(summary)} sentences, over 2`);
   }
   if (expected.covers !== undefined) {
-    for (const day of [expected.covers.from, expected.covers.to]) if (!namesDay(take, day)) failures.push(`the take of a catch-up never names ${dayAndMonth(day)}`);
+    const rendered = `${coversLine(expected.covers)} ${take}`;
+    for (const day of [expected.covers.days[0], expected.covers.days.at(-1)]) {
+      if (day !== undefined && !namesDay(rendered, day)) failures.push(`the take of a catch-up never names ${dayAndMonth(day)}`);
+    }
   }
   const prose = [take, ...picks.flatMap(({ why, summary }) => [why, summary])].join("\n");
   return [...failures, ...inventedReferences(prose, prompt), ...avoidedTermFailures(prose)];

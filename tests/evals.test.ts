@@ -9,6 +9,7 @@ import { type DumpCheck, keepEval, writeDumpDryRun } from "../evals/keep.ts";
 import { grade } from "../evals/rubric.ts";
 import { weeklyEval } from "../evals/weekly.ts";
 import type { CommandResult, Exec } from "../src/command.ts";
+import { catchUpSince } from "../src/catch-up.ts";
 import { PaperBotError } from "../src/errors.ts";
 import { THEMES_SCHEMA } from "../src/weekly.ts";
 import { DAILY_SCHEMA } from "../src/write.ts";
@@ -155,20 +156,17 @@ abstract: We study grading.`;
   });
 
   test.each([
-    ["names both days", "From Sat 24 Oct to Mon 26 Oct, assistants dominate.", []],
-    ["names a range", "Across October 24–26, assistants dominate.", []],
-    ["names them in ISO form", "From 2026-10-24 to 2026-10-26, assistants dominate.", []],
-    ["names only the last day", "By Monday 26 October, assistants dominate.", ["the take of a catch-up never names 24 Oct"]],
-    ["names no day", "Over the weekend, assistants dominate.", ["the take of a catch-up never names 24 Oct", "the take of a catch-up never names 26 Oct"]],
-  ])("checks that a catch-up's take names its dates: a take that %s", (_, take, expected) => {
+    ["Oct 23 to 26", "2026-10-23", "2026-10-26"],
+    ["Oct 30 to Nov 2", "2026-10-29", "2026-11-02"],
+  ])("passes a catch-up's take as the Briefing renders it, its covers line naming the days: %s", (_, coveredThrough, today) => {
     // #given
-    const covers = { from: new Date(2026, 9, 24), to: new Date(2026, 9, 26) };
+    const covers = catchUpSince(coveredThrough, today);
 
     // #when
-    const failures = checkDaily({ ...REPLY, take }, { ...EXPECTED, covers }, PROMPT);
+    const failures = checkDaily({ ...REPLY, take: "Over the weekend, assistants dominate." }, { ...EXPECTED, ...(covers === undefined ? {} : { covers }) }, PROMPT);
 
     // #then
-    expect(failures).toEqual(expected);
+    expect({ catchUp: covers !== undefined, failures }).toEqual({ catchUp: true, failures: [] });
   });
 
   test("fails URLs, arXiv ids, DOIs and quoted titles that are not in the input", () => {
@@ -371,9 +369,8 @@ describe("the evals on their fixtures", () => {
   const obedient: Ask = async (schema, prompt) => {
     if (prompt.startsWith("Grade what")) return Object.fromEntries(Object.entries(GRADES).filter(([name]) => prompt.includes(`- ${name}:`)));
     if (schema === DAILY_SCHEMA) {
-      const covers = prompt.match(/catches up on (.+?) to (.+?), so/);
       return {
-        take: covers === null ? "Course assistants lead today." : `From ${covers[1]} to ${covers[2]}, course assistants lead.`,
+        take: "Course assistants lead today.",
         picks: field(prompt, "id").map((id) => ({ id, why: "It bears on your Interests.", summary: "It measured what it set out to." })),
       };
     }
@@ -402,18 +399,18 @@ describe("the evals on their fixtures", () => {
     expect(failures).toEqual(expected);
   });
 
-  test("the daily eval fails the catch-up, and only it, when the take names no dates", async () => {
+  test("the daily eval fails each fixture whose reply leaves out its last Pick", async () => {
     // #given
-    const undated: Ask = async (schema, prompt) => {
+    const forgetful: Ask = async (schema, prompt) => {
       const reply = await obedient(schema, prompt);
-      return schema === DAILY_SCHEMA ? { ...(reply as object), take: "Course assistants lead." } : reply;
+      return schema === DAILY_SCHEMA ? { ...(reply as object), picks: field(prompt, "id").slice(0, -1).map((id) => ({ id, why: "Why.", summary: "What." })) } : reply;
     };
 
     // #when
-    const failures = await run(dailyEval(undated));
+    const failures = await run(dailyEval(forgetful));
 
     // #then
-    expect(failures).toEqual({ normal: [], thin: [], "catch-up": ["the take of a catch-up never names 24 Oct", "the take of a catch-up never names 26 Oct"] });
+    expect(failures).toEqual({ normal: ["arxiv:2610.19033 has no entry"], thin: ["arxiv:2610.19702 has no entry"], "catch-up": ["arxiv:2610.21890 has no entry"] });
   });
 
   test("an eval fails a case with claude's own error when the call fails", async () => {

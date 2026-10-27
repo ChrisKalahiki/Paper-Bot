@@ -10,6 +10,7 @@ Always use `bun`, never `npm`.
 - `bun test` or `bun run test:file -- tests/scan.test.ts`: tests.
 - `bun run lint:file -- src/scan.ts`: lint some files.
 - `bun src/cli.ts scan --daily`: a Daily Scan against the real config, store, sources and CLIs.
+- `bun scripts/install-launch-agent.ts`: installs and loads the 06:00 LaunchAgent. Never call it, or `launchctl`, from an agent or a test.
 - `bun run eval [name]`: prompt evals on the real pinned model, which Chris starts by hand; `bun run eval:check` (CI) fails while one is stale. Changing a prompt, schema or fixture makes its eval stale: say so, and never start `bun run eval` yourself.
 
 ## Layout
@@ -19,7 +20,9 @@ Always use `bun`, never `npm`.
 - `src/command.ts`: `Exec`, the one way to start `codex`, `claude` and `brain-dump`.
 - `src/sources/`: one module per source, fetching through `Fetch` (`src/http.ts`) and returning `Candidate`s; pointers (HF, the labs) return `Pointers`, which `src/pointers.ts` gathers and attaches as signals.
 - `src/rank.ts` (`codex exec`), `src/write.ts` (`claude -p`), `src/prompts.ts` (their prompts), `src/full-text.ts` (Picks' arXiv HTML or open-access PDF as text), `src/briefing.ts` (renders the note), `src/brain-dump.ts` (Vault access).
+- `src/picks.ts`: `paper-bot picks --json`, the contract homeros polls (ChrisKalahiki/homeros#77). Change its shape only with homeros.
 - `src/store.ts`: SQLite. Schema changes are a new entry in `MIGRATIONS`, never an edit to a shipped one.
+- `launchd/dev.paper-bot.scan.plist`: the LaunchAgent template that `scripts/install-launch-agent.ts` fills in.
 - `evals/`: `eval.ts` (registry, input hash, `passed.json`), one module per eval (`daily.ts`, `weekly.ts`, `keep.ts`) over `fixtures/<eval>/`, `assertions.ts` (the gating checks), `rubric.ts` (the advisory grade). Each eval reaches the model through `Ask`, so tests feed it canned replies.
 - `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, recorded responses from every source (`sourcesFetch`) and a fixed clock.
 

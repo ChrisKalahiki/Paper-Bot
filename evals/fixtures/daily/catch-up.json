@@ -1,6 +1,6 @@
 {
   "at": "2026-10-26T06:00:00",
-  "since": "2026-10-24T00:00:00",
+  "coveredThrough": "2026-10-23",
   "interests": [
     { "name": "AI in higher education", "description": "How AI changes university teaching, tutoring and assessment.", "venues": ["L@S"], "avoid": ["K-12 only studies"] },
     { "name": "Context management in AI", "description": "How LLM agents choose, compress and carry context across long tasks.", "venues": [], "avoid": [] },

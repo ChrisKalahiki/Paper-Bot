@@ -4,7 +4,7 @@ export type Clock = () => Date;
 export const systemClock: Clock = () => new Date();
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -38,7 +38,8 @@ export function lastWeek(at: Date): IsoWeek {
   return isoWeek(new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7));
 }
 
-function isoWeek(at: Date): IsoWeek {
+/** The ISO week, in the system time zone, that `at` falls in. */
+export function isoWeek(at: Date): IsoWeek {
   const monday = mondayOf(at);
   const year = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3).getFullYear();
   const week = 1 + Math.round((monday.getTime() - mondayOf(new Date(year, 0, 4)).getTime()) / WEEK_MS);
