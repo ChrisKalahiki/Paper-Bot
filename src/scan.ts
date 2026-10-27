@@ -1,5 +1,6 @@
 import { type BrainDump, brainDumpCli } from "./brain-dump.ts";
 import { dailyBriefingPath, renderDailyBriefing } from "./briefing.ts";
+import { type CatchUp, catchUpSince, coversLine } from "./catch-up.ts";
 import { type Candidate, mergeCandidates, type PaperSourceName, primaryId, type Ranking, SOURCE_LABELS, type SourceName } from "./candidate.ts";
 import { type Clock, localDate } from "./clock.ts";
 import { type Exec, loggingExec } from "./command.ts";
@@ -14,7 +15,7 @@ import { fetchPointers, withSignals } from "./pointers.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
 import { retryingFetch, retryOnce, type Sleep } from "./retry.ts";
-import { fetchArxivCandidates } from "./sources/arxiv.ts";
+import { fetchArxivCandidates, fetchArxivSubmitted } from "./sources/arxiv.ts";
 import { fetchEricCandidates } from "./sources/eric.ts";
 import { fetchJmlrCandidates } from "./sources/jmlr.ts";
 import { fetchOpenAlexCandidates } from "./sources/openalex.ts";
@@ -42,7 +43,9 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
   const scanId = store.startScan("daily", localDate(startedAt), startedAt);
   const sources: SourceResults = {};
   const rankingFailures: string[] = [];
+  const catchUp = catchUpSince(store.arxivCoveredThrough(), localDate(startedAt));
   log(`Daily Scan ${scanId} started`);
+  if (catchUp !== undefined) log(`Catching up on ${catchUp.days.map(localDate).join(", ")}`);
 
   const settle = (result: ScanResult, picks: Parameters<Store["settleScan"]>[2] = []): ScanResult => {
     store.settleScan(scanId, { ...result, sources, at: clock() }, picks);
@@ -58,8 +61,8 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
     const [fetched, pointers] = await Promise.all([
-      fetchSources(deps, watchedVenues(note, config.venues), sources, log),
-      fetchPointers({ fetch: retryingFetch(deps.fetch, deps.sleep, log), store, at: startedAt }, sources, log),
+      fetchSources(deps, watchedVenues(note, config.venues), catchUp, sources, log),
+      fetchPointers({ fetch: retryingFetch(deps.fetch, deps.sleep, log), store, at: startedAt, days: catchUp?.days ?? [startedAt] }, sources, log),
     ]);
     const pending = store.pending();
     const candidates = withSignals(dropKnown([...pending, ...fetched, ...pointers.candidates], store, log), pointers.signals);
@@ -81,7 +84,7 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     });
     const markdown = renderDailyBriefing({
       at: startedAt,
-      take: prose.take,
+      take: catchUp === undefined ? prose.take : `${coversLine(catchUp)} ${prose.take}`,
       picks: rendered,
       alsoConsidered: alsoConsidered(ranked, picks),
       candidates: countBySource(ranked),
@@ -116,13 +119,19 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
   return [...new Set(note.interests.flatMap((interest) => interest.venues.flatMap((venue) => venues[venue] ?? [])))];
 }
 
-/** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
-async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
+/**
+ * Every source's Candidates in source order; arXiv gives its latest announcement, or on a catch-up every Paper
+ * submitted since the first missed day. A failed source is recorded and skipped; the Scan fails only when all do.
+ */
+async function fetchSources(deps: ScanDeps, venues: string[], catchUp: CatchUp | undefined, sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
   const { config } = deps;
   const fetch = retryingFetch(deps.fetch, deps.sleep, log);
   const at = deps.clock();
   const fetchers: Record<PaperSourceName, () => Promise<Candidate[]>> = {
-    arxiv: () => fetchArxivCandidates(fetch, config.arxiv.categories),
+    arxiv: () =>
+      catchUp === undefined
+        ? fetchArxivCandidates(fetch, config.arxiv.categories)
+        : fetchArxivSubmitted(fetch, config.arxiv.categories, { from: catchUp.submittedFrom, to: at }, deps.sleep),
     openalex: () => {
       const names = Object.fromEntries(Object.entries(config.venues).map(([name, id]) => [id, name]));
       return fetchOpenAlexCandidates(fetch, { key: config.openalex.key, venues, names }, at);
