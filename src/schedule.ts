@@ -7,6 +7,7 @@ export type SettledScan = ScanResult & { kind: ScanKind };
 
 /**
  * What `paper-bot scan` does: the Daily Scan, then the Weekly Scan of last week unless one already wrote or skipped it.
+ * Only the Daily Scan sends Keeps.
  * That is every Monday, and any later day when Monday's was missed or failed.
  */
 export async function scheduledScans(deps: ScanDeps): Promise<SettledScan[]> {
@@ -17,5 +18,5 @@ export async function scheduledScans(deps: ScanDeps): Promise<SettledScan[]> {
     .scans()
     .some(({ kind, date, outcome }) => kind === "weekly" && date === monday && (outcome === "written" || outcome === "skipped"));
   if (settled) return [daily];
-  return [daily, { kind: "weekly", ...(await weeklyScan(deps, week)) }];
+  return [daily, { kind: "weekly", ...(await weeklyScan(deps, week, { keeps: false })) }];
 }

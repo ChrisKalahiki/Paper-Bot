@@ -46,7 +46,7 @@ const scheduled = (box: Sandbox, commands: FakeCommands, at: Date) =>
 
 /** `paper-bot scan --weekly` at `at`. */
 const weekly = (box: Sandbox, commands: FakeCommands, at: Date) =>
-  withStore(box, (store) => weeklyScan({ config: testConfig(), store, fetch: sourcesFetch(), exec: commands.exec, clock: () => at, logDir: box.logDir, sleep: fakeSleep() }, lastWeek(at)));
+  withStore(box, (store) => weeklyScan({ config: testConfig(), store, fetch: sourcesFetch(), exec: commands.exec, clock: () => at, logDir: box.logDir, sleep: fakeSleep() }, lastWeek(at), { keeps: true }));
 
 /** Daily Briefings on Tue 20 and Thu 22 Oct (2026-W43), the second catching up on the 21st: four Picks, one a Wildcard. */
 async function weekOfPicks(box: Sandbox, commands: FakeCommands): Promise<void> {
@@ -290,6 +290,41 @@ describe("paper-bot scan on another day", () => {
       weekly: { kind: "weekly", outcome: "written", briefing: WEEKLY },
       scans: ["failed", "written"],
     });
+  });
+});
+
+describe("Keeps", () => {
+  const ticked = (commands: FakeCommands) =>
+    commands.vault.set(DAILY_20, (commands.vault.get(DAILY_20) ?? "").replace("- [ ] Keep ^pick-2610-31679", "- [x] Keep ^pick-2610-31679"));
+  const writeDumps = (commands: FakeCommands) => commands.calls.filter(({ argv }) => argv[1] === "write-dump").length;
+
+  test("paper-bot scan --weekly sends a ticked Pick to the Inbox before writing the Weekly Briefing", async () => {
+    // #given
+    const box = sandbox();
+    const commands = fakeCommands({ rankings: RANKINGS });
+    await weekOfPicks(box, commands);
+    ticked(commands);
+
+    // #when
+    await weekly(box, commands, MONDAY);
+
+    // #then
+    const weeklyNote = commands.vault.get(WEEKLY) ?? "";
+    expect({ dumps: writeDumps(commands), kept: weeklyNote.slice(weeklyNote.indexOf("## Already kept this week")).includes("2610.31679") }).toEqual({ dumps: 1, kept: true });
+  });
+
+  test("paper-bot scan sends a ticked Pick once, in its Daily Scan", async () => {
+    // #given
+    const box = sandbox();
+    const commands = fakeCommands({ rankings: RANKINGS });
+    await weekOfPicks(box, commands);
+    ticked(commands);
+
+    // #when
+    await scheduled(box, commands, MONDAY);
+
+    // #then
+    expect(writeDumps(commands)).toBe(1);
   });
 });
 

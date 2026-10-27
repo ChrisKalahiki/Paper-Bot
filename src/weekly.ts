@@ -2,6 +2,7 @@ import { brainDumpCli } from "./brain-dump.ts";
 import { renderWeeklyBriefing, type Theme, weeklyBriefingPath } from "./briefing.ts";
 import { type IsoWeek, localDate } from "./clock.ts";
 import { PaperBotError } from "./errors.ts";
+import { keepTicked } from "./keep.ts";
 import { weeklyPrompt } from "./prompts.ts";
 import { retryOnce } from "./retry.ts";
 import { alreadyWritten, readInterests, recordedScan, type ScanDeps, type ScanResult } from "./scan.ts";
@@ -27,22 +28,25 @@ export const THEMES_SCHEMA = {
 };
 
 /**
- * Writes the Weekly Briefing of `week` from the Picks of its Daily Briefings; it fetches and ranks nothing.
+ * Writes the Weekly Briefing of `week` from the Picks of its Daily Briefings; it fetches and ranks nothing. With `keeps`,
+ * it first sends ticked Keeps to the Inbox, as a Daily Scan does; `paper-bot scan` leaves them to its Daily Scan.
  * The Scan is skipped when the week has no Picks, and failed when it cannot settle its Briefing.
  */
-export function weeklyScan(scanDeps: ScanDeps, week: IsoWeek): Promise<ScanResult> {
+export function weeklyScan(scanDeps: ScanDeps, week: IsoWeek, { keeps }: { keeps: boolean }): Promise<ScanResult> {
   const from = localDate(week.monday);
   const to = localDate(week.sunday);
   return recordedScan(
     scanDeps,
     "weekly",
     from,
-    async (deps, { log }) => {
+    async (deps, scan) => {
       const { config, store } = deps;
+      const { log } = scan;
+      const brainDump = brainDumpCli(deps.exec, config.brainDump);
+      if (keeps) for (const issue of await keepTicked(deps, brainDump, scan)) log(`Keep issue: ${issue}`);
       const picks = store.weekPicks(from, to);
       if (picks.length === 0) return { outcome: "skipped", reason: `no Picks in ${week.name}` };
 
-      const brainDump = brainDumpCli(deps.exec, config.brainDump);
       const note = await readInterests(brainDump, Object.keys(config.venues));
       const interests = [...new Set([...note.interests.map((interest) => interest.name), ...picks.flatMap((pick) => pick.interests)])];
       const themes = await retryOnce(

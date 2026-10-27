@@ -22,7 +22,7 @@ async function main(argv: string[]): Promise<number> {
       const { daily, weekly } = parseOptions(rest, { daily: { type: "boolean" }, weekly: { type: "boolean" } });
       if (daily && weekly) throw new UsageError(USAGE);
       if (daily) return await scan(async (deps) => [{ kind: "daily", ...(await dailyScan(deps)) }]);
-      if (weekly) return await scan(async (deps) => [{ kind: "weekly", ...(await weeklyScan(deps, lastWeek(deps.clock()))) }]);
+      if (weekly) return await scan(async (deps) => [{ kind: "weekly", ...(await weeklyScan(deps, lastWeek(deps.clock()), { keeps: true })) }]);
       return await scan(scheduledScans);
     }
     case "picks": {
