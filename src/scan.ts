@@ -7,6 +7,7 @@ import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
 import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type Interest, parseInterestsNote } from "./interests.ts";
+import { keepTicked } from "./keep.ts";
 import { openScanLog, type ScanLog } from "./log.ts";
 import type { PickInput } from "./prompts.ts";
 import { codexRanker, type Ranker } from "./rank.ts";
@@ -41,6 +42,7 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
 
   try {
     const brainDump = brainDumpCli(deps.exec, config.brainDump);
+    const keepIssues = await keepTicked(deps, brainDump, scanId, log);
     const interests = await readInterests(brainDump);
     log(`Interests: ${interests.map((interest) => interest.name).join("; ")}`);
 
@@ -59,7 +61,7 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
       return { candidate, interests: ranking.interests, ...written };
     });
-    const markdown = renderDailyBriefing({ at: startedAt, take: prose.take, picks: rendered, candidates: countBySource(ranked) });
+    const markdown = renderDailyBriefing({ at: startedAt, take: prose.take, picks: rendered, candidates: countBySource(ranked), keepIssues });
     const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
     log(`wrote ${briefing}`);
     return settle(

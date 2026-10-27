@@ -29,27 +29,29 @@ const DAILY_SCHEMA = {
   },
 };
 
-/** `claude -p` with no tools, MCP servers, settings or saved session: text in, schema-shaped JSON out. */
 export function claudeWriter(exec: Exec, model: string): Writer {
-  return async (picks, interests, at) => {
-    const argv = [
-      "claude",
-      "-p",
-      "--no-session-persistence",
-      "--model",
-      model,
-      "--tools",
-      "",
-      "--strict-mcp-config",
-      "--safe-mode",
-      "--output-format",
-      "json",
-      "--json-schema",
-      JSON.stringify(DAILY_SCHEMA),
-    ];
-    const stdout = await runCommand(exec, "claude -p", argv, { stdin: dailyPrompt(picks, interests, at), timeoutMs: WRITE_TIMEOUT_MS });
-    return readProse(structuredOutput(parseJson("claude -p", stdout)), picks);
-  };
+  return async (picks, interests, at) => readProse(await claudeJson(exec, model, DAILY_SCHEMA, dailyPrompt(picks, interests, at)), picks);
+}
+
+/** `claude -p` with no tools, MCP servers, settings or saved session: text in, schema-shaped JSON out. */
+export async function claudeJson(exec: Exec, model: string, schema: object, prompt: string): Promise<unknown> {
+  const argv = [
+    "claude",
+    "-p",
+    "--no-session-persistence",
+    "--model",
+    model,
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--safe-mode",
+    "--output-format",
+    "json",
+    "--json-schema",
+    JSON.stringify(schema),
+  ];
+  const stdout = await runCommand(exec, "claude -p", argv, { stdin: prompt, timeoutMs: WRITE_TIMEOUT_MS });
+  return structuredOutput(parseJson("claude -p", stdout));
 }
 
 /** claude can exit 0 with `is_error` set, so that flag decides, never `subtype`. */
@@ -78,4 +80,4 @@ function readProse(output: unknown, picks: PickInput[]): DailyProse {
   return { take: oneLine(output.take), picks: written };
 }
 
-const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+export const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();

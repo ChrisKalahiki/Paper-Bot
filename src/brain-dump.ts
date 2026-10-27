@@ -9,7 +9,12 @@ export type BrainDump = {
   show(note: string): Promise<string>;
   /** Creates a Briefing note (`write-briefing`); Brain-Dump refuses one that already exists. Returns the note's path. */
   writeBriefing(note: string, markdown: string): Promise<string>;
+  /** Writes a Kept Pick as a Dump in the Inbox (`write-dump --origin briefing`). Returns the Dump's path. */
+  writeDump(dump: KeptDump): Promise<string>;
 };
+
+/** `body` is the Dump body: sections of Items only, as `write-dump` reads on stdin. */
+export type KeptDump = { briefing: string; paper: string; project: string; slug: string; body: string };
 
 export function brainDumpCli(exec: Exec, command: string): BrainDump {
   return {
@@ -27,6 +32,12 @@ export function brainDumpCli(exec: Exec, command: string): BrainDump {
         throw new PaperBotError("brain-dump write-briefing printed no note path");
       }
       return output.note;
+    },
+    async writeDump({ briefing, paper, project, slug, body }) {
+      const argv = [command, "write-dump", "--origin", "briefing", "--briefing", briefing, "--paper", paper, "--project", project, "--slug", slug];
+      const path = (await runCommand(exec, "brain-dump write-dump", argv, { stdin: body, timeoutMs: TIMEOUT_MS })).trim();
+      if (path === "") throw new PaperBotError("brain-dump write-dump printed no Dump path");
+      return path;
     },
   };
 }

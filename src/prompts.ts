@@ -29,6 +29,27 @@ ${candidates}
 
 export type PickInput = { candidate: Candidate; ranking: Ranking };
 
+export type KeepInput = { paper: string; title: string; authors: string[]; url: string; abstract: string; why: string; summary: string };
+
+export function keepPrompt(pick: KeepInput): string {
+  return `Chris ticked Keep on this Pick. You draft the Dump that sends it to his Inbox, as JSON.
+
+id: ${pick.paper}
+title: ${pick.title}
+authors: ${pick.authors.join(", ") || "unknown"}
+link: ${pick.url}
+why it was Picked: ${pick.why}
+summary: ${pick.summary}
+abstract: ${pick.abstract}
+
+Return:
+- header: one line naming the title, the authors, the arXiv id or Venue, and the link;
+- learnings: 2 to 4 Learnings, one line each, each a standalone statement Chris could file on its own: the method, the key finding, a limitation. End each with the link.
+
+Use only what is given above. Write no Todos or Decisions.
+`;
+}
+
 export function dailyPrompt(picks: PickInput[], interests: Interest[], at: Date): string {
   const listed = picks
     .map(
