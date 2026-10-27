@@ -999,7 +999,7 @@ describe("a Daily Scan that meets failures", () => {
   });
 });
 describe("a Daily Scan with pointers", () => {
-  const candidateIn = (prompt: string | undefined, id: string): string | undefined => prompt?.split("\n\n").find((block) => block.startsWith(`id: ${id}\n`));
+  const candidateIn = (prompt: string | undefined, id: string): string | undefined => prompt?.split("\n\n").find((block) => block.startsWith(`id: ${id}\n`))?.trim();
   const withHf = () => sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json") });
 
   test("tells the ranker, as text, that a Candidate is on HF daily papers", async () => {
@@ -1037,5 +1037,86 @@ describe("a Daily Scan with pointers", () => {
 
     // #then
     expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: announced by OpenAI");
+  });
+
+  const DEEPMIND = {
+    "https://deepmind.google/research/publications/": fixture("deepmind-publications.html"),
+    "https://deepmind.google/research/publications/231045/": fixture("deepmind-publication-231045.html"),
+    "https://deepmind.google/research/publications/231020/": fixture("deepmind-publication-231020.html"),
+    "https://deepmind.google/research/publications/230990/": fixture("deepmind-publication-230990.html"),
+  };
+  const OPENREVIEW = "url:https://openreview.net/forum?id=Ab12Cd34";
+
+  test("ranks a lab Paper with no arXiv id or DOI as a Candidate identified by its URL, and counts it under its lab", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { ...PICKED, [OPENREVIEW]: { score: 7, interests: ["AI in higher education"] } } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, ...DEEPMIND }) });
+
+    // #then
+    expect({
+      ranked: candidateIn(codexCalls(commands)[0]?.stdin, OPENREVIEW),
+      footer: commands.vault.get(BRIEFING)?.includes("3 candidates · arXiv 2 · DeepMind 1"),
+    }).toEqual({
+      ranked: `id: ${OPENREVIEW}\ntitle: Tutoring Agents That Ask Before They Tell\nabstract: A tutoring agent that asks a diagnostic question and then explains helps students more than one that explains at once.\nsignals: announced by DeepMind`,
+      footer: true,
+    });
+  });
+
+  test("gives an arXiv Candidate HF's listing and a lab's announcement together", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json"), ...DEEPMIND });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: on HF daily papers; announced by DeepMind");
+  });
+
+  test("never reads a lab post again once a Scan has read it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands(), storePath, logDir, fetch: sourcesFetch(DEEPMIND) });
+    const fetch = sourcesFetch(DEEPMIND);
+
+    // #when
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://deepmind.google/"))).toEqual(["https://deepmind.google/research/publications/"]);
+  });
+
+  test("reads a lab's posts again next Scan when this Scan's reading of them failed", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const failing = sourcesFetch({ ...DEEPMIND, "https://deepmind.google/research/publications/231020/": "" });
+    const broken = async (url: string) => (url.endsWith("/231020/") ? new Response("down", { status: 503 }) : failing(url));
+    await scan({ commands: fakeCommands(), storePath, logDir, fetch: broken });
+    const fetch = sourcesFetch(DEEPMIND);
+
+    // #when
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://deepmind.google/research/publications/2"))).toHaveLength(3);
+  });
+
+  test("still writes its Briefing when a pointer fails, recording which", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const working = arxivFetch();
+    const fetch = async (url: string) => (url.startsWith("https://huggingface.co/") ? new Response("busy", { status: 429 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ outcome: result.outcome, hf: stored(storePath).scans[0]?.sources?.hf }).toEqual({ outcome: "written", hf: { error: "HF daily papers answered 429" } });
   });
 });
