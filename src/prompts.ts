@@ -1,23 +1,35 @@
 import { type Candidate, primaryId, type Ranking } from "./candidate.ts";
 import { longDate } from "./clock.ts";
-import type { Interest } from "./interests.ts";
+import type { Interest, InterestsNote, Wildcards } from "./interests.ts";
 
-const interestList = (interests: Interest[]): string => interests.map(({ name, description }) => `## ${name}\n${description}`).join("\n\n");
+const interestList = (interests: Interest[]): string =>
+  interests
+    .map(({ name, description, venues, avoid }) =>
+      [`## ${name}`, description, venues.length > 0 ? `Venues: ${venues.join(", ")}` : "", avoid.length > 0 ? `Avoid: ${avoid.join("; ")}` : ""]
+        .filter((line) => line !== "")
+        .join("\n"),
+    )
+    .join("\n\n");
 
-export function rankPrompt(batch: Candidate[], interests: Interest[]): string {
+const wildcardRule = ({ cap, hint }: Wildcards): string =>
+  cap === 0
+    ? "always false: Chris takes no Wildcards"
+    : `true only when it matches no Interest but could still matter to a researcher in AI, education and HCI; Chris takes at most ${cap} a day, so flag only the strongest${hint ? `. His hint: ${hint}` : ""}`;
+
+export function rankPrompt(batch: Candidate[], { interests, wildcards }: InterestsNote): string {
   const candidates = batch.map((candidate) => `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\nabstract: ${candidate.abstract}`).join("\n\n");
   return `You rank new research Papers for Chris against his Interests. Use only the titles and abstracts below; do not browse or execute commands.
 
-His Interests:
+His Interests, each with the Venues he watches and what he wants left out:
 
 ${interestList(interests)}
 
 For every Candidate, return:
 - id: its id, exactly as given;
 - interests: the names of the Interests it matches, exactly as written above; none is fine;
-- score: 0 to 10, how much Chris would want to read it today; 7 or above means it belongs in today's Briefing;
+- score: 0 to 10, how much Chris would want to read it today; 7 or above means it belongs in today's Briefing, and a Candidate an Interest's Avoid list describes scores below 7 for that Interest;
 - why: one line of at most 30 words on what makes it matter to Chris, or not;
-- wildcard: true only when it matches no Interest but could still matter to a researcher in AI, education and HCI.
+- wildcard: ${wildcardRule(wildcards)}.
 
 Score every Candidate exactly once.
 
@@ -33,7 +45,7 @@ export function dailyPrompt(picks: PickInput[], interests: Interest[], at: Date)
   const listed = picks
     .map(
       ({ candidate, ranking }) =>
-        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\ninterests: ${ranking.interests.join(", ") || "none"}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract}`,
+        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\ninterests: ${ranking.interests.join(", ") || (ranking.wildcard ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract}`,
     )
     .join("\n\n");
   return `You write the prose of Chris's Daily Briefing for ${longDate(at)}. Code lays out the note; you return only the prose, as JSON.

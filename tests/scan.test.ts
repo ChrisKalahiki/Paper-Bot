@@ -328,3 +328,95 @@ picks: 2
     expect({ files: readdirSync(logDir), last: lines.at(-1)?.replace(/^\S+ /, "") }).toEqual({ files: ["2026-10-26-daily.log"], last: "Daily Scan written" });
   });
 });
+
+describe("a Daily Scan reading the whole Interests Note", () => {
+  const VENUES_AND_AVOID = `## Context management in AI
+How agents choose, compress and carry context.
+
+- Venues: ACL, EMNLP
+- Avoid: pure long-context architecture papers; benchmark-only papers
+
+## Wildcards
+Up to 1 per Daily Briefing. Anything surprising.
+`;
+
+  test("gives the ranker each Interest's Venues and Avoid list", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: VENUES_AND_AVOID } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config: testConfig({ venues: { ACL: "S4363608652", EMNLP: "S4363608991" } }) });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain(`## Context management in AI
+How agents choose, compress and carry context.
+Venues: ACL, EMNLP
+Avoid: pure long-context architecture papers; benchmark-only papers`);
+  });
+
+  test("adds flagged Wildcards scoring 8 or above after the Picks, up to the cap, marked in the Briefing", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({
+      rankings: {
+        "arxiv:2610.30001": { score: 7, interests: ["Context management in AI"] },
+        "arxiv:2610.30002": { score: 7, wildcard: true },
+        "arxiv:2610.30003": { score: 8, wildcard: true },
+        "arxiv:2610.30004": { score: 9, wildcard: true },
+        "arxiv:2610.30005": { score: 10 },
+      },
+    });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: arxivFetch(arxivFeedOf(5)) });
+
+    // #then
+    const lines = commands.vault.get(BRIEFING)?.split("\n") ?? [];
+    expect({ picks: stored(storePath).picks.map((pick) => pick.paper), titles: lines.filter((line) => /^\d+\. /.test(line)) }).toEqual({
+      picks: ["arxiv:2610.30001", "arxiv:2610.30004"],
+      titles: ["1. **[Paper 1](https://arxiv.org/abs/2610.30001)** · *Context management in AI*", "2. **[Paper 4](https://arxiv.org/abs/2610.30004)** · *Wildcard*"],
+    });
+  });
+
+  test("writes a Briefing of Wildcards alone when no Candidate matches an Interest", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "arxiv:2610.32109": { score: 9, wildcard: true } } });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect({ outcome: result.outcome, picks: stored(storePath).picks.map((pick) => pick.paper) }).toEqual({ outcome: "written", picks: ["arxiv:2610.32109"] });
+  });
+
+  test("picks no Wildcards when the note has no Wildcards section", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents choose, compress and carry context.\n";
+    const commands = fakeCommands({ rankings: { ...PICKED, "arxiv:2610.32109": { score: 9, wildcard: true } }, notes: { [INTERESTS_NOTE]: note } });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(stored(storePath).picks.map((pick) => pick.paper)).toEqual(["arxiv:2610.31679"]);
+  });
+
+  test("still runs with an unreadable bullet and an unknown Venue, naming them on an Interests Note issues line", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = `${VENUES_AND_AVOID}\n## AI in higher education\nHow AI changes university teaching.\n\n- Priority: high\n`;
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config: testConfig({ venues: { ACL: "S4363608652" } }) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.split("\n\n").slice(-2)).toEqual([
+      "2 candidates · arXiv 2",
+      'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"; unreadable bullet under AI in higher education: "- Priority: high"\n',
+    ]);
+  });
+});
