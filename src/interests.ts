@@ -8,7 +8,7 @@ export type Wildcards = { cap: number; hint: string };
 /** `issues` are what paper-bot could not read, for the Briefing's footer; the Scan goes ahead without them. */
 export type InterestsNote = { interests: Interest[]; wildcards: Wildcards; issues: string[] };
 
-const WILDCARDS_HEADING = "Wildcards";
+export const WILDCARDS_HEADING = "Wildcards";
 const WILDCARD_CAP = /Up to (\d+) per Daily Briefing\.?/i;
 const DEFAULT_WILDCARD_CAP = 1;
 

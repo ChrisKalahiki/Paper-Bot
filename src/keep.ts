@@ -2,6 +2,7 @@ import type { BrainDump } from "./brain-dump.ts";
 import { blockIdOf } from "./briefing.ts";
 import { localDate } from "./clock.ts";
 import { PaperBotError } from "./errors.ts";
+import { WILDCARDS_HEADING } from "./interests.ts";
 import type { ScanLog } from "./log.ts";
 import { keepPrompt } from "./prompts.ts";
 import type { ScanDeps } from "./scan.ts";
@@ -104,11 +105,8 @@ function renderDumpBody({ header, learnings }: KeepDraft, url: string): string {
   return `## Learnings\n${items.join("\n")}\n`;
 }
 
-function projectOf(pick: KeepablePick): string {
-  const [first] = pick.interests;
-  if (first === undefined) throw new PaperBotError(`${pick.paper} matches no Interest to use as the Dump's Project`);
-  return first;
-}
+/** The Pick's first Interest; a Wildcard, which matches none, goes under the Interests Note's Wildcards section. */
+const projectOf = (pick: KeepablePick): string => pick.interests[0] ?? WILDCARDS_HEADING;
 
 /** The title's first six words, without the characters a Dump slug refuses. */
 function slugOf(title: string): string {

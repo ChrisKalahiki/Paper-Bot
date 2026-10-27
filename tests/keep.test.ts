@@ -5,7 +5,7 @@ import { INTERESTS_NOTE } from "../src/interests.ts";
 import { tickedKeeps } from "../src/keep.ts";
 import { dailyScan } from "../src/scan.ts";
 import { openStore } from "../src/store.ts";
-import { arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, INTERESTS, MONDAY, tempDir, testConfig } from "./harness.ts";
+import { arxivFeedOf, arxivFetch, type FakeCommands, type FakeRanking, fakeCommands, INTERESTS, MONDAY, tempDir, testConfig } from "./harness.ts";
 
 const BRIEFING = "Research/Briefings/Daily/2026-10-26 Daily Briefing.md";
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
@@ -46,8 +46,8 @@ function keeps(storePath: string) {
 }
 
 /** Monday's Daily Briefing, written by a real Scan, with the Keep boxes of `ticked` Picks ticked. */
-async function mondayBriefing(storePath: string, logDir: string, ticked: string[]): Promise<string> {
-  const monday = fakeCommands({ rankings: PICKED });
+async function mondayBriefing(storePath: string, logDir: string, ticked: string[], rankings: Record<string, FakeRanking> = PICKED): Promise<string> {
+  const monday = fakeCommands({ rankings });
   await scan({ commands: monday, storePath, logDir, at: MONDAY });
   const text = monday.vault.get(BRIEFING) ?? "";
   return ticked.reduce((note, block) => note.replace(`- [ ] Keep ^${block}`, `- [x] Keep ^${block}`), text);
@@ -196,6 +196,19 @@ describe("a Keep", () => {
       "Ignored the Keep line ^pick-2610-3210 in [[2026-10-26 Daily Briefing]]: it names no Pick.",
       "Ignored a Keep line in [[2026-10-26 Daily Briefing]]: it has no ^pick- id.\n",
     ]);
+  });
+
+  test("files a Kept Wildcard, which matches no Interest, under the Wildcards Project", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const briefing = await mondayBriefing(storePath, logDir, ["pick-2610-32109"], { "arxiv:2610.32109": { score: 9, wildcard: true } });
+    const commands = fakeCommands({ notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: briefing } });
+
+    // #when
+    await scan({ commands, storePath, logDir, at: TUESDAY });
+
+    // #then
+    expect(writeDumps(commands).map(({ argv }) => argv[argv.indexOf("--project") + 1])).toEqual(["Wildcards"]);
   });
 });
 
