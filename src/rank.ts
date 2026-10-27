@@ -13,7 +13,7 @@ const RANK_TIMEOUT_MS = 10 * 60 * 1000;
 export type Ranker = (batch: Candidate[], note: InterestsNote) => Promise<Map<string, Ranking>>;
 
 /** The OpenAI structured-output shape: every property required, no others allowed. */
-const RANK_SCHEMA = {
+export const RANK_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["rankings"],
@@ -37,18 +37,20 @@ const RANK_SCHEMA = {
 };
 
 export function codexRanker(exec: Exec, model: string): Ranker {
-  return async (batch, note) => {
-    const dir = mkdtempSync(join(tmpdir(), "paper-bot-rank-"));
-    try {
-      const schema = join(dir, "rank-schema.json");
-      writeFileSync(schema, JSON.stringify(RANK_SCHEMA));
-      const argv = ["codex", "exec", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "-m", model, "--output-schema", schema, "-"];
-      const stdout = await runCommand(exec, "codex exec", argv, { stdin: rankPrompt(batch, note), timeoutMs: RANK_TIMEOUT_MS });
-      return readRankings(parseJson("codex exec", stdout), batch, note.interests);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  };
+  return async (batch, note) => readRankings(await codexJson(exec, model, RANK_SCHEMA, rankPrompt(batch, note)), batch, note.interests);
+}
+
+/** `codex exec` with no session saved and a read-only sandbox: text in, schema-shaped JSON out. */
+export async function codexJson(exec: Exec, model: string, schema: object, prompt: string): Promise<unknown> {
+  const dir = mkdtempSync(join(tmpdir(), "paper-bot-rank-"));
+  try {
+    const schemaPath = join(dir, "rank-schema.json");
+    writeFileSync(schemaPath, JSON.stringify(schema));
+    const argv = ["codex", "exec", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "-m", model, "--output-schema", schemaPath, "-"];
+    return parseJson("codex exec", await runCommand(exec, "codex exec", argv, { stdin: prompt, timeoutMs: RANK_TIMEOUT_MS }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Keeps the well-formed rankings of Candidates in the batch, and only the Interests that exist. */

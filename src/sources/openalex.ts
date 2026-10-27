@@ -3,7 +3,7 @@ import { localDate } from "../clock.ts";
 import { PaperBotError } from "../errors.ts";
 import type { Fetch } from "../http.ts";
 
-const WORKS = "https://api.openalex.org/works";
+export const WORKS = "https://api.openalex.org/works";
 
 /** OpenAlex subfields: 3304 Education, 1709 Human-Computer Interaction. */
 const SUBFIELDS = ["3304", "1709"];
@@ -11,7 +11,7 @@ const SUBFIELDS = ["3304", "1709"];
 /** Publication dates lag and get backfilled, so each Scan re-reads a rolling window and the store drops what it has seen. */
 const WINDOW_DAYS = 14;
 
-const FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
+export const OPENALEX_FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
 
 export type OpenAlexOptions = {
   key: string;
@@ -21,7 +21,7 @@ export type OpenAlexOptions = {
   names?: Record<string, string>;
 };
 
-type Work = {
+export type Work = {
   id?: string;
   doi?: string | null;
   title?: string | null;
@@ -56,7 +56,7 @@ async function allWorks(fetch: Fetch, filter: string, key: string): Promise<Work
   const works: Work[] = [];
   let cursor: string | null | undefined = "*";
   while (cursor) {
-    const params = new URLSearchParams({ filter, select: FIELDS, "per-page": "200", cursor, api_key: key });
+    const params = new URLSearchParams({ filter, select: OPENALEX_FIELDS, "per-page": "200", cursor, api_key: key });
     const response = await fetch(`${WORKS}?${params}`);
     if (!response.ok) throw new PaperBotError(`OpenAlex answered ${response.status}`);
     const page = (await response.json()) as Page;
@@ -67,7 +67,7 @@ async function allWorks(fetch: Fetch, filter: string, key: string): Promise<Work
   return works;
 }
 
-function toCandidate(work: Work, names: Record<string, string>): Candidate | undefined {
+export function toCandidate(work: Work, names: Record<string, string>): Candidate | undefined {
   const title = work.title?.replace(/\s+/g, " ").trim();
   const openalex = work.id?.match(/W\d+$/)?.[0];
   if (!title || openalex === undefined) return undefined;
