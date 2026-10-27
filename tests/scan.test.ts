@@ -86,11 +86,11 @@ picks: 2
 
 1. **[MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring](https://arxiv.org/abs/2610.31679)** · *AI in higher education · Context management in AI*
    **Why it's here:** Why arxiv:2610.31679.
-   What arxiv:2610.31679 found.
+   What arxiv:2610.31679 found. *(from abstract)*
    - [ ] Keep ^pick-2610-31679
 2. **[Context or Knowledge: How LLMs Attribute Their Own Answers](https://arxiv.org/abs/2610.32109)** · *Context management in AI*
    **Why it's here:** Why arxiv:2610.32109.
-   What arxiv:2610.32109 found.
+   What arxiv:2610.32109 found. *(from abstract)*
    - [ ] Keep ^pick-2610-32109
 
 2 candidates · arXiv 2
@@ -620,6 +620,169 @@ describe("a Daily Scan across sources", () => {
     // #then
     const filters = fetch.urls.filter((url) => url.startsWith("https://api.openalex.org/")).map((url) => new URL(url).searchParams.get("filter"));
     expect(filters).toContain("primary_location.source.id:S4363608652|S4363608991,publication_year:2026|2025");
+  });
+});
+
+describe("a Daily Briefing's content", () => {
+  const ARXIV_HTML = fixture("arxiv-html.html");
+  const PMLR = { "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") };
+  const context = ["Context management in AI"];
+  const claudePrompt = (commands: FakeCommands) => commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+  const failing = (prefix: string, fetch: Fetch): Fetch => async (url) => (url.startsWith(prefix) ? new Response("down", { status: 503 }) : fetch(url));
+
+  test("is the take, the ranked Picks, a collapsed Also considered list and the full footer", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({
+      rankings: {
+        "arxiv:2610.30001": { score: 9, interests: context },
+        "arxiv:2610.30002": { score: 8, interests: ["AI in higher education"] },
+        "arxiv:2610.30003": { score: 6 },
+        "arxiv:2610.30004": { score: 5 },
+        "arxiv:2610.30005": { score: 4 },
+        "arxiv:2610.30006": { score: 3 },
+        "arxiv:2610.30007": { score: 2 },
+        "arxiv:2610.30008": { score: 1 },
+        "url:https://proceedings.mlr.press/v306/ono26b.html": { score: 10, interests: context },
+      },
+    });
+    const fetch = failing(
+      "https://api.openalex.org/",
+      sourcesFetch({ "https://rss.arxiv.org/": arxivFeedOf(8), ...PMLR, "https://arxiv.org/html/2610.30001": ARXIV_HTML }),
+    );
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 2
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[Paper 1](https://arxiv.org/abs/2610.30001)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.30001.
+   What arxiv:2610.30001 found.
+   - [ ] Keep ^pick-2610-30001
+2. **[Paper 2](https://arxiv.org/abs/2610.30002)** · *AI in higher education*
+   **Why it's here:** Why arxiv:2610.30002.
+   What arxiv:2610.30002 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-30002
+
+<details><summary>Also considered (6)</summary>
+
+- [Sparse World Models](https://proceedings.mlr.press/v306/ono26b.html) · *no abstract*
+- [Paper 3](https://arxiv.org/abs/2610.30003)
+- [Paper 4](https://arxiv.org/abs/2610.30004)
+- [Paper 5](https://arxiv.org/abs/2610.30005)
+- [Paper 6](https://arxiv.org/abs/2610.30006)
+- [Paper 7](https://arxiv.org/abs/2610.30007)
+
+</details>
+
+10 candidates · arXiv 8 · PMLR 2
+
+OpenAlex failed: OpenAlex answered 503
+`);
+  });
+
+  test("fetches full text for the Picks only", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = arxivFetch();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://arxiv.org/"))).toEqual(["https://arxiv.org/html/2610.31679", "https://arxiv.org/html/2610.32109"]);
+  });
+
+  test("gives the writer each Pick's full text, and tells it which Picks have only an abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://arxiv.org/html/2610.32109": ARXIV_HTML });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const prompt = claudePrompt(commands);
+    expect({
+      withFullText: prompt.includes("full text: Context or Knowledge: How LLMs Attribute Their Own Answers Abstract We edit the KV cache & ask"),
+      fromAbstract: prompt.match(/^full text: none.*$/gm),
+    }).toEqual({ withFullText: true, fromAbstract: ["full text: none; write from the abstract"] });
+  });
+
+  test("reads an OpenAlex Pick's open-access PDF when arXiv has no HTML for it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "openalex:W1": { score: 9, interests: context } } });
+    const work = { id: "https://openalex.org/W1", title: "Tutors", abstract_inverted_index: { Text: [0] }, best_oa_location: { pdf_url: "https://example.edu/w1.pdf" } };
+    const pdf = readFileSync(join(import.meta.dir, "fixtures", "paper.pdf"));
+    const served = sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [work] }) });
+    const fetch = async (url: string) => (url === "https://example.edu/w1.pdf" ? new Response(pdf) : served(url));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(claudePrompt(commands)).toContain("full text: Full text of the Paper.");
+  });
+
+  test("still writes a Pick, from its abstract, when reading its full text fails, and logs why", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = async (url: string) => {
+      if (url.startsWith("https://arxiv.org/html/")) throw new Error("connection reset");
+      return arxivFetch()(url);
+    };
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const log = readFileSync(join(logDir, readdirSync(logDir)[0] ?? ""), "utf8");
+    expect({ outcome: result.outcome, logged: log.includes("no full text for arxiv:2610.31679: connection reset") }).toEqual({ outcome: "written", logged: true });
+  });
+
+  test("names each failed source on its own footer line, before the Interests Note issues", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents carry context.\n\n- Venues: EMNLP\n";
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+    const fetch = failing("https://www.jmlr.org/", failing("https://api.ies.ed.gov/", arxivFetch()));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.split("\n\n").slice(-4)).toEqual([
+      "2 candidates · arXiv 2",
+      "ERIC failed: ERIC answered 503",
+      "JMLR failed: JMLR answered 503",
+      'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"\n',
+    ]);
+  });
+
+  test("leaves out Also considered when every ranked Candidate is a Pick", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).not.toContain("Also considered");
   });
 });
 

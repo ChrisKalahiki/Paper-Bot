@@ -12,6 +12,7 @@
         { "landing_page_url": "https://doi.org/10.1145/3772318.3790001" },
         { "landing_page_url": "http://arxiv.org/abs/2609.11111v2" }
       ],
+      "best_oa_location": { "landing_page_url": "http://arxiv.org/abs/2609.11111v2", "pdf_url": "https://arxiv.org/pdf/2609.11111v2" },
       "abstract_inverted_index": { "Students": [0], "steer": [1], "tutors": [2, 5], "and": [3], "trust": [4] }
     },
     {
@@ -32,6 +33,7 @@
       "ids": { "openalex": "https://openalex.org/W4416000003" },
       "primary_location": { "landing_page_url": "https://example.edu/policy", "source": null },
       "locations": [{ "landing_page_url": "https://example.edu/policy" }],
+      "best_oa_location": { "landing_page_url": "https://example.edu/policy", "pdf_url": null },
       "abstract_inverted_index": null
     }
   ]

@@ -11,7 +11,7 @@ const SUBFIELDS = ["3304", "1709"];
 /** Publication dates lag and get backfilled, so each Scan re-reads a rolling window and the store drops what it has seen. */
 const WINDOW_DAYS = 14;
 
-const FIELDS = "id,doi,title,ids,primary_location,locations,abstract_inverted_index";
+const FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
 
 export type OpenAlexOptions = { key: string; /** OpenAlex source ids of the watched Venues. */ venues: string[] };
 
@@ -21,6 +21,7 @@ type Work = {
   title?: string | null;
   primary_location?: { landing_page_url?: string | null } | null;
   locations?: { landing_page_url?: string | null }[] | null;
+  best_oa_location?: { pdf_url?: string | null } | null;
   abstract_inverted_index?: Record<string, number[]> | null;
 };
 
@@ -72,6 +73,7 @@ function toCandidate(work: Work): Candidate | undefined {
     title,
     url: work.doi ? `https://doi.org/${bareDoi(work.doi)}` : (work.primary_location?.landing_page_url ?? `https://openalex.org/${openalex}`),
     abstract: abstractOf(work.abstract_inverted_index),
+    ...(work.best_oa_location?.pdf_url ? { pdf: work.best_oa_location.pdf_url } : {}),
   };
 }
 

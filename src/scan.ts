@@ -5,6 +5,7 @@ import { type Clock, localDate } from "./clock.ts";
 import { type Exec, loggingExec } from "./command.ts";
 import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
+import { readFullTexts } from "./full-text.ts";
 import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
@@ -21,6 +22,7 @@ import type { Outcome, SourceResults, Store } from "./store.ts";
 import { claudeWriter } from "./write.ts";
 
 const MAX_PICKS = 5;
+const ALSO_CONSIDERED = 6;
 
 /** Everything a Scan touches outside itself, so tests can run the real pipeline against fakes. */
 export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string; sleep: Sleep };
@@ -38,7 +40,7 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
   const startedAt = clock();
   const scanId = store.startScan("daily", localDate(startedAt), startedAt);
   const sources: SourceResults = {};
-  const failures: string[] = [];
+  const rankingFailures: string[] = [];
   log(`Daily Scan ${scanId} started`);
 
   const settle = (result: ScanResult, picks: Parameters<Store["settleScan"]>[2] = []): ScanResult => {
@@ -54,37 +56,40 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     log(`Interests: ${note.interests.map((interest) => interest.name).join("; ")}`);
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
-    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, failures, log);
+    const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, log);
     const pending = store.pending();
     const candidates = dropKnown([...pending, ...fetched], store, log);
     log(`${candidates.length} new Candidates of ${fetched.length} fetched and ${pending.length} pending`);
 
-    if (candidates.length > 0) await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, failures, log);
+    if (candidates.length > 0) await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, rankingFailures, log);
     const ranked = store.unsettledRankings();
     if (ranked.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
+    const toWrite = await readFullTexts(deps.fetch, picks, log);
     const write = claudeWriter(deps.exec, config.models.write);
-    const prose = await retryOnce("Writing the Daily Briefing", () => write(picks, note.interests, startedAt), deps.sleep, log);
-    const rendered = picks.map(({ candidate, ranking }) => {
+    const prose = await retryOnce("Writing the Daily Briefing", () => write(toWrite, note.interests, startedAt), deps.sleep, log);
+    const rendered = toWrite.map(({ candidate, ranking, fullText }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
-      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written };
+      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written, fromAbstract: fullText === undefined };
     });
     const markdown = renderDailyBriefing({
       at: startedAt,
       take: prose.take,
       picks: rendered,
+      alsoConsidered: alsoConsidered(ranked, picks),
       candidates: countBySource(ranked),
-      failures,
+      failedSources: failedSources(sources),
+      rankingFailures,
       issues: note.issues,
       keepIssues,
     });
     const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
     log(`wrote ${briefing}`);
     return settle(
-      { outcome: "written", briefing, ...(failures.length > 0 && { reason: `degraded: ${failures.join("; ")}` }) },
+      { outcome: "written", briefing, ...degraded(sources, rankingFailures) },
       rendered.map((pick, i) => ({ candidate: pick.candidate, rank: i + 1, why: pick.why, summary: pick.summary })),
     );
   } catch (error) {
@@ -108,7 +113,7 @@ function watchedVenues(note: InterestsNote, venues: Config["venues"]): string[] 
 }
 
 /** Every source's Candidates in source order. A failed source is recorded and skipped; the Scan fails only when all do. */
-async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, failures: string[], log: ScanLog): Promise<Candidate[]> {
+async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceResults, log: ScanLog): Promise<Candidate[]> {
   const { config } = deps;
   const fetch = retryingFetch(deps.fetch, deps.sleep, log);
   const at = deps.clock();
@@ -133,9 +138,8 @@ async function fetchSources(deps: ScanDeps, venues: string[], sources: SourceRes
       }
     }),
   );
-  const failed = fetched.flatMap(({ source, error }) => (error === undefined ? [] : [{ source: SOURCE_LABELS[source], error }]));
-  if (failed.length === fetched.length) throw new PaperBotError(`every source failed (${failed.map(({ source, error }) => `${source}: ${error}`).join("; ")})`);
-  failures.push(...failed.map(({ source, error }) => `${source} failed: ${error}`));
+  const failures = fetched.flatMap(({ source, error }) => (error === undefined ? [] : [`${SOURCE_LABELS[source]}: ${error}`]));
+  if (failures.length === fetched.length) throw new PaperBotError(`every source failed (${failures.join("; ")})`);
   return fetched.flatMap(({ candidates }) => candidates ?? []);
 }
 
@@ -218,6 +222,33 @@ function choosePicks(ranked: Ranked[], bars: Config["bars"], wildcardCap: number
     ...best((ranking) => ranking.score >= bars.pick && ranking.interests.length > 0, MAX_PICKS),
     ...best((ranking) => ranking.score >= bars.wildcard && ranking.interests.length === 0 && ranking.wildcard, wildcardCap),
   ];
+}
+
+/** The best ranked Candidates that are not Picks, Candidates with no abstract among them. Each best first; ties keep fetch order. */
+function alsoConsidered(ranked: Ranked[], picks: Ranked[]): Candidate[] {
+  return ranked
+    .filter((entry) => !picks.includes(entry))
+    .sort((a, b) => b.ranking.score - a.ranking.score)
+    .slice(0, ALSO_CONSIDERED)
+    .map(({ candidate }) => candidate);
+}
+
+/** A written Scan's reason when it lost sources or ranking batches: what failed. */
+function degraded(sources: SourceResults, rankingFailures: string[]): { reason?: string } {
+  const failures = [
+    ...(Object.entries(failedSources(sources)) as [SourceName, string][]).map(([source, error]) => `${SOURCE_LABELS[source]} failed: ${error}`),
+    ...rankingFailures,
+  ];
+  return failures.length === 0 ? {} : { reason: `degraded: ${failures.join("; ")}` };
+}
+
+function failedSources(sources: SourceResults): Partial<Record<SourceName, string>> {
+  const failed: Partial<Record<SourceName, string>> = {};
+  for (const source of Object.keys(SOURCE_LABELS) as SourceName[]) {
+    const result = sources[source];
+    if (result !== undefined && "error" in result) failed[source] = result.error;
+  }
+  return failed;
 }
 
 function countBySource(ranked: Ranked[]): Partial<Record<Candidate["source"], number>> {
