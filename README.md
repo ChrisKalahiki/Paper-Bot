@@ -4,7 +4,7 @@ paper-bot finds new research Papers in Chris's Interests and writes Briefings ab
 
 ## Daily Scan
 
-`paper-bot scan --daily` (or `paper-bot scan`) is one Daily Scan:
+`paper-bot scan --daily` is one Daily Scan:
 
 1. reads the Interests Note, `Research/Briefings/Interests.md`, with `brain-dump show --full`. Each `## <Interest>` heading is one Interest: the paragraph under it, then optional `- Venues:` (comma-separated) and `- Avoid:` (semicolon-separated) bullets. `## Wildcards` with "Up to N per Daily Briefing" sets the Wildcard cap (1 when it gives no number; no section means no Wildcards). A missing note, or one with no Interests, fails the Scan before anything is fetched. Unreadable bullets and Venues missing from the config go on an "Interests Note issues" line at the foot of the Briefing, and the Scan goes ahead;
 2. fetches Candidates from every source at once: today's arXiv announcement for the configured categories (one combined RSS feed, new and cross-listed Papers); OpenAlex works published in the last 14 days in Education or HCI, plus this and last year's works from the Venues the Interests watch; ERIC's Higher Education records added this year; the newest ICML volume on PMLR; and the JMLR feed. A failed source is recorded and skipped; the Scan fails only when every source fails;
@@ -20,6 +20,12 @@ Before step 1, every Scan sends Picks Chris ticked as Keep to the Inbox. It read
 Each source fetch and each `codex exec` or `claude -p` call that fails (a timeout, `is_error`, not logged in, a usage limit) is tried once more after 30 seconds. A Scan that lost some sources or ranking batches still writes its Briefing; the footer names what failed, and the `scans` row records it as the reason.
 
 It exits 1 when the Scan failed. Picks are chosen from the scores saved since the last Scan that wrote or skipped its Briefing, so running `paper-bot scan --daily` again after a failed Scan reuses its scores instead of ranking again, and is safe to repeat. Each Scan logs to `~/Library/Logs/paper-bot/<date>-daily.log`, including each command's exit code and duration.
+
+## Weekly Scan
+
+`paper-bot scan --weekly` is one Weekly Scan of the previous ISO week (Monday to Sunday, in the system time zone). It fetches and ranks nothing: it reads the Picks of that week's Daily Briefings from the store, has `claude -p` write one to three themes from them, and writes the Weekly Briefing with `brain-dump write-briefing` to `Research/Briefings/Weekly/<YYYY-Www> Weekly Briefing.md`, named by ISO week-year (the week of 1 Jan 2027 is `2026-W53`). The Briefing holds the themes, the Interests with no Pick that week, a table of Picks and Keeps per Interest (and Wildcards), the top 5 Picks not yet Kept with the same `- [ ] Keep … ^pick-<id>` lines as a Daily Briefing, the week's Picks already Kept, and links to its Daily Briefings. A week with no Picks is recorded as skipped and writes no note. The `scans` row of a Weekly Scan is dated by the Monday of the week it covers; it logs to `~/Library/Logs/paper-bot/<date>-weekly.log`.
+
+`paper-bot scan` with no flag is what the schedule starts: the Daily Scan, then the Weekly Scan of last week unless a Weekly Scan already wrote or skipped it. That is every Monday, and any later day when Monday's was missed or failed; only last week is caught up. It exits 1 when either Scan failed.
 
 ## Setup
 

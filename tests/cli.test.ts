@@ -108,7 +108,65 @@ describe("paper-bot scan --daily", () => {
     const result = paperBot(sandbox, ["sweep"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily]\n" });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n" });
+  });
+
+  test("--daily and --weekly together is a usage error", () => {
+    // #given
+    const sandbox = home();
+
+    // #when
+    const result = paperBot(sandbox, ["scan", "--daily", "--weekly"]);
+
+    // #then
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n" });
+  });
+});
+
+describe("paper-bot scan --weekly", () => {
+  test("runs only last week's Weekly Scan, skipped when the week has no Picks", () => {
+    // #given
+    const sandbox = home();
+    writeConfig(sandbox, testConfig({ brainDump: unreachableBrainDump(sandbox) }));
+
+    // #when
+    const result = paperBot(sandbox, ["scan", "--weekly"]);
+
+    // #then
+    const store = openStore(sandbox.storePath);
+    expect({
+      exitCode: result.exitCode,
+      stdout: /^Weekly Scan skipped: no Picks in \d{4}-W\d{2}\n$/.test(result.stdout),
+      kinds: store.scans().map(({ kind }) => kind),
+    }).toEqual({ exitCode: 0, stdout: true, kinds: ["weekly"] });
+  });
+});
+
+describe("paper-bot scan", () => {
+  test("still runs the Weekly Scan after a failed Daily Scan, then exits 1 naming the failure", () => {
+    // #given
+    const sandbox = home();
+    writeConfig(sandbox, testConfig({ brainDump: unreachableBrainDump(sandbox) }));
+
+    // #when
+    const result = paperBot(sandbox, ["scan"]);
+
+    // #then
+    const store = openStore(sandbox.storePath);
+    expect({
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+      stdout: /^Weekly Scan skipped: no Picks in \d{4}-W\d{2}\n$/.test(result.stdout),
+      scans: store.scans().map(({ kind, outcome }) => ({ kind, outcome })),
+    }).toEqual({
+      exitCode: 1,
+      stderr: "paper-bot: Daily Scan failed: brain-dump show failed (exit 1): brain-dump: Vault not found at ~/The Vault\n",
+      stdout: true,
+      scans: [
+        { kind: "daily", outcome: "failed" },
+        { kind: "weekly", outcome: "skipped" },
+      ],
+    });
   });
 });
 
