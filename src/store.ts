@@ -60,6 +60,18 @@ const MIGRATIONS = [
     CHECK ((dump IS NULL) <> (error IS NULL))
   );
   `,
+  `
+  CREATE TABLE pending (
+    id TEXT PRIMARY KEY,
+    ids TEXT NOT NULL,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    authors TEXT,
+    url TEXT NOT NULL,
+    abstract TEXT NOT NULL,
+    since TEXT NOT NULL
+  );
+  `,
 ];
 
 export type ScanKind = "daily" | "weekly";
@@ -106,8 +118,12 @@ export type Store = {
    */
   matchKnown(candidate: Candidate): number[];
   startScan(kind: ScanKind, date: string, at: Date): number;
-  /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score. */
+  /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score, and leaves pending. */
   saveRankings(scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: Date): void;
+  /** Candidates a Scan could not rank, over the batch cap or in a failed batch, oldest first. */
+  pending(): Candidate[];
+  /** Adds Candidates to pending, or refreshes those already there. */
+  addPending(candidates: Candidate[], at: Date): void;
   /** Records how the Scan ended, with its Picks, once its Briefing is settled. */
   settleScan(scanId: number, settlement: Settlement, picks: PickRecord[]): void;
   scans(): ScanRow[];
@@ -151,6 +167,11 @@ export function openStore(path: string): Store {
     `INSERT INTO keeps (paper_id, scan_id, briefing, dump, error, at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error, at = excluded.at`,
   );
+  const deletePending = db.query("DELETE FROM pending WHERE id = ?");
+  const upsertPending = db.query(
+    `INSERT INTO pending (id, ids, source, title, authors, url, abstract, since) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET ids = excluded.ids, title = excluded.title, authors = excluded.authors, url = excluded.url, abstract = excluded.abstract`,
+  );
   const primaryIdOf = "(SELECT id FROM paper_ids WHERE paper_id = papers.id ORDER BY rowid LIMIT 1)";
 
   const saveRankings = db.transaction((scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: string) => {
@@ -160,6 +181,14 @@ export function openStore(path: string): Store {
       if (paper === null) throw new PaperBotError(`could not store "${candidate.title}"`);
       for (const id of candidate.ids) insertId.run(id, paper.id);
       insertScore.run(paper.id, scanId, ranking.score, JSON.stringify(ranking.interests), ranking.why, ranking.wildcard ? 1 : 0);
+      for (const id of candidate.ids) deletePending.run(id);
+    }
+  });
+
+  const addPending = db.transaction((candidates: Candidate[], at: string) => {
+    for (const candidate of candidates) {
+      const authors = candidate.authors === undefined ? null : JSON.stringify(candidate.authors);
+      upsertPending.run(primaryId(candidate), JSON.stringify(candidate.ids), candidate.source, candidate.title, authors, candidate.url, candidate.abstract, at);
     }
   });
 
@@ -189,6 +218,18 @@ export function openStore(path: string): Store {
       return row.id;
     },
     saveRankings: (scanId, ranked, at) => saveRankings(scanId, ranked, at.toISOString()),
+    pending: () =>
+      db
+        .query<{ ids: string; source: Candidate["source"]; title: string; authors: string | null; url: string; abstract: string }, []>(
+          "SELECT ids, source, title, authors, url, abstract FROM pending ORDER BY rowid",
+        )
+        .all()
+        .map(({ ids, authors, ...rest }) => ({
+          ...rest,
+          ids: JSON.parse(ids) as string[],
+          ...(authors === null ? {} : { authors: JSON.parse(authors) as string[] }),
+        })),
+    addPending: (candidates, at) => addPending(candidates, at.toISOString()),
     settleScan: (scanId, settlement, picks) => settleScan(scanId, settlement, picks),
     scans: () =>
       db

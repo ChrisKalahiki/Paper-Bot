@@ -54,8 +54,9 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     for (const issue of note.issues) log(`Interests Note issue: ${issue}`);
 
     const fetched = await fetchSources(deps, watchedVenues(note, config.venues), sources, log);
-    const candidates = dropKnown(fetched, store, log);
-    log(`${candidates.length} new Candidates of ${fetched.length} fetched`);
+    const pending = store.pending();
+    const candidates = dropKnown([...pending, ...fetched], store, log);
+    log(`${candidates.length} new Candidates of ${fetched.length} fetched and ${pending.length} pending`);
     if (candidates.length === 0) return settle({ outcome: "skipped", reason: "no new Candidates" });
 
     const ranked = await rankAll(codexRanker(deps.exec, config.models.rank), candidates, note, deps, scanId, log);
@@ -151,15 +152,24 @@ function dropKnown(fetched: Candidate[], store: Store, log: ScanLog): Candidate[
 
 type Ranked = PickInput;
 
-/** Ranks in batches, saving each batch's scores as it finishes. A failed batch is logged; the Scan fails only when every batch fails. */
+/**
+ * Ranks in batches, at most `batch.cap` of them, saving each batch's scores as it finishes. Candidates over the cap and
+ * those in a failed batch go to pending, for the next Scan to rank first. The Scan fails only when every batch fails.
+ */
 async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNote, deps: ScanDeps, scanId: number, log: ScanLog): Promise<Ranked[]> {
+  const { store, clock } = deps;
+  const { size, cap } = deps.config.batch;
   const ranked: Ranked[] = [];
-  const size = deps.config.batch.size;
+  const batches: Candidate[][] = [];
+  for (let start = 0; start < Math.min(candidates.length, size * cap); start += size) batches.push(candidates.slice(start, start + size));
+  const overflow = candidates.slice(size * cap);
+  if (overflow.length > 0) {
+    store.addPending(overflow, clock());
+    log(`${overflow.length} Candidates over the cap of ${cap} ranking batches wait for the next Scan`);
+  }
   let failures = 0;
-  const batches = Math.ceil(candidates.length / size);
-  for (let start = 0; start < candidates.length; start += size) {
-    const batch = candidates.slice(start, start + size);
-    const label = `ranking batch ${start / size + 1} of ${batches}`;
+  for (const [i, batch] of batches.entries()) {
+    const label = `Ranking batch ${i + 1} of ${batches.length}`;
     const began = Date.now();
     try {
       const rankings = await retryOnce(label, () => rank(batch, note), deps.sleep, log);
@@ -167,16 +177,17 @@ async function rankAll(rank: Ranker, candidates: Candidate[], note: InterestsNot
         const ranking: Ranking | undefined = rankings.get(primaryId(candidate));
         return ranking === undefined ? [] : [{ candidate, ranking }];
       });
-      deps.store.saveRankings(scanId, scored, deps.clock());
+      store.saveRankings(scanId, scored, clock());
       ranked.push(...scored);
       log(`${label}: ${scored.length} of ${batch.length} scored in ${Date.now() - began} ms`);
     } catch (error) {
       if (!(error instanceof PaperBotError)) throw error;
       failures++;
-      log(`${label} failed after ${Date.now() - began} ms: ${error.message}`);
+      store.addPending(batch, clock());
+      log(`${label} failed after ${Date.now() - began} ms, its Candidates wait for the next Scan: ${error.message}`);
     }
   }
-  if (failures === batches) throw new PaperBotError("every ranking batch failed");
+  if (failures === batches.length) throw new PaperBotError("every ranking batch failed");
   return ranked;
 }
 

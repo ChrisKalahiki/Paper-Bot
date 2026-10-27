@@ -656,6 +656,41 @@ describe("a Daily Scan that meets failures", () => {
     expect({ outcome: result.outcome, codex: codexCalls(commands).length, waits: sleep.waits }).toEqual({ outcome: "written", codex: 2, waits: [30_000] });
   });
 
+  test("ranks at most the cap of batches; the next Scan ranks the overflow first, from its stored abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 1 } });
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => stdin.slice(stdin.search(/^id: /m)).split("\n").slice(0, 3))).toEqual([
+      [
+        "id: arxiv:2610.31679",
+        "title: MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring",
+        "abstract: Five open-weight tutors over 5,000+ simulated dialogues; how you score them changes who looks good.",
+      ],
+    ]);
+  });
+
+  test("puts a batch that fails both tries into pending, and the next Scan ranks it first", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 20 } });
+    const secondBatchFails = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.31679") ? { exitCode: 1, stdout: "", stderr: "usage limit" } : fakeCodex()(argv, stdin)) });
+    await scan({ commands: secondBatchFails, storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([["arxiv:2610.31679"], ["arxiv:2610.30001"]]);
+  });
+
   test("logs each LLM call's exit code and duration", async () => {
     // #given
     const { storePath, logDir } = sandbox();
