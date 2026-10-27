@@ -27,7 +27,7 @@ export function glossaryHits(root: string): GlossaryHit[] {
       .flatMap((pattern) => [...new Glob(pattern).scanSync(root)])
       .filter((file) => !SUPERSEDED_SPECS.has(file))
       .map((file) => ({ file, text: toSearchable(readFileSync(join(root, file), "utf8")) }));
-  const files = [...read(PROSE, proseText), ...read(SOURCE, stringLiterals)].sort((a, b) => (a.file < b.file ? -1 : 1));
+  const files = [...read(PROSE, proseText), ...read(SOURCE, (source) => stringLiterals(source).replace(/https?:\/\/[^\s"'`]+/g, blank))].sort((a, b) => (a.file < b.file ? -1 : 1));
   return files.flatMap(({ file, text }) =>
     text.split("\n").flatMap((content, i) =>
       terms
