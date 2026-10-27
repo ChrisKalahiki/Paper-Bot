@@ -1,0 +1,24 @@
+{
+  "name": "paper-bot",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "paper-bot": "src/cli.ts"
+  },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "check": "bun run typecheck && bun run lint:claude && bun run glossary && bun test",
+    "test": "bun test",
+    "test:file": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint",
+    "lint:file": "biome lint",
+    "lint:claude": "biome lint --diagnostic-level=error",
+    "glossary": "bun scripts/glossary.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
