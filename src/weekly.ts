@@ -9,7 +9,7 @@ import { retryOnce } from "./retry.ts";
 import { readInterests, type ScanDeps, type ScanResult } from "./scan.ts";
 import { claudeJson, oneLine } from "./write.ts";
 
-const THEMES_SCHEMA = {
+export const THEMES_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["themes"],

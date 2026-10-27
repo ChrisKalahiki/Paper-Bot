@@ -33,11 +33,15 @@ export function brainDumpCli(exec: Exec, command: string): BrainDump {
       }
       return output.note;
     },
-    async writeDump({ briefing, paper, project, slug, body }) {
-      const argv = [command, "write-dump", "--origin", "briefing", "--briefing", briefing, "--paper", paper, "--project", project, "--slug", slug];
-      const path = (await runCommand(exec, "brain-dump write-dump", argv, { stdin: body, timeoutMs: TIMEOUT_MS })).trim();
+    async writeDump(dump) {
+      const path = (await runCommand(exec, "brain-dump write-dump", writeDumpArgv(command, dump), { stdin: dump.body, timeoutMs: TIMEOUT_MS })).trim();
       if (path === "") throw new PaperBotError("brain-dump write-dump printed no Dump path");
       return path;
     },
   };
+}
+
+/** `write-dump` for a Kept Pick, its body to go on stdin. */
+export function writeDumpArgv(command: string, { briefing, paper, project, slug }: KeptDump): string[] {
+  return [command, "write-dump", "--origin", "briefing", "--briefing", briefing, "--paper", paper, "--project", project, "--slug", slug];
 }

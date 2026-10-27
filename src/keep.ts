@@ -1,4 +1,4 @@
-import type { BrainDump } from "./brain-dump.ts";
+import type { BrainDump, KeptDump } from "./brain-dump.ts";
 import { blockIdOf } from "./briefing.ts";
 import { localDate } from "./clock.ts";
 import { PaperBotError } from "./errors.ts";
@@ -13,7 +13,7 @@ import { claudeJson, oneLine } from "./write.ts";
 const KEEP_WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const KEEP_SCHEMA = {
+export const KEEP_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["header", "learnings"],
@@ -63,13 +63,7 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
       if (handled.has(pick.paper)) continue;
       handled.add(pick.paper);
       try {
-        const dump = await brainDump.writeDump({
-          briefing,
-          paper: pick.paper,
-          project: projectOf(pick),
-          slug: slugOf(pick.title),
-          body: renderDumpBody(await draftKeep(deps, pick, log), pick.url),
-        });
+        const dump = await brainDump.writeDump(keptDump(pick, briefing, await draftKeep(deps, pick, log)));
         store.recordKeep(scanId, pick.paper, briefing, { dump }, clock());
         log(`kept ${pick.paper} as ${dump}`);
       } catch (error) {
@@ -83,7 +77,7 @@ export async function keepTicked(deps: ScanDeps, brainDump: BrainDump, scanId: n
   return issues;
 }
 
-type KeepDraft = { header: string; learnings: string[] };
+export type KeepDraft = { header: string; learnings: string[] };
 
 async function draftKeep(deps: ScanDeps, pick: KeepablePick, log: ScanLog): Promise<KeepDraft> {
   const output = await retryOnce(`Drafting the Keep of ${pick.paper}`, () => claudeJson(deps.exec, deps.config.models.write, KEEP_SCHEMA, keepPrompt(pick)), deps.sleep, log);
@@ -95,6 +89,11 @@ async function draftKeep(deps: ScanDeps, pick: KeepablePick, log: ScanLog): Prom
     throw new PaperBotError("claude -p returned a Keep without 2 to 4 Learnings");
   }
   return { header: output.header, learnings };
+}
+
+/** The Dump `write-dump` gets for a Kept Pick drafted as `draft`, from the Briefing it was ticked in. */
+export function keptDump(pick: KeepablePick, briefing: string, draft: KeepDraft): KeptDump {
+  return { briefing, paper: pick.paper, project: projectOf(pick), slug: slugOf(pick.title), body: renderDumpBody(draft, pick.url) };
 }
 
 /** A Dump body holds only Items, so the header leads the Learnings; every line carries the Paper's link. */

@@ -38,6 +38,12 @@ export function glossaryHits(root: string): GlossaryHit[] {
   );
 }
 
+/** The avoided terms `text` uses, in the order it first uses them. */
+export function avoidedTermsIn(text: string, glossary: string): string[] {
+  const used = avoidedTerms(glossary).flatMap((term) => [...text.matchAll(termPattern(term))].map((match) => ({ term, at: match.index })));
+  return [...new Set(used.sort((a, b) => a.at - b.at).map(({ term }) => term))];
+}
+
 function avoidedTerms(glossary: string): string[] {
   const terms = [...glossary.matchAll(/^_Avoid_:(.*)$/gm)].flatMap((match) =>
     (match[1] ?? "")
