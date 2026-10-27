@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkDaily, checkKeep, checkTopPicks, checkWeekly } from "../evals/assertions.ts";
+import { checkDaily, checkKeep, checkRank, checkTopPicks, checkWeekly, type RankExpectation } from "../evals/assertions.ts";
 import type { Ask } from "../evals/claude.ts";
 import { dailyEval } from "../evals/daily.ts";
 import { EVALS, type Eval, inputHash, staleEvals } from "../evals/eval.ts";
 import { type DumpCheck, keepEval, writeDumpDryRun } from "../evals/keep.ts";
+import { RANK_FIXTURES, rankEval, readRankFixtures } from "../evals/rank.ts";
 import { grade } from "../evals/rubric.ts";
 import { weeklyEval } from "../evals/weekly.ts";
 import type { CommandResult, Exec } from "../src/command.ts";
@@ -13,7 +14,7 @@ import { catchUpSince } from "../src/catch-up.ts";
 import { PaperBotError } from "../src/errors.ts";
 import { THEMES_SCHEMA } from "../src/weekly.ts";
 import { DAILY_SCHEMA } from "../src/write.ts";
-import { tempDir } from "./harness.ts";
+import { tempDir, testConfig } from "./harness.ts";
 
 describe("prompt evals", () => {
   test("an eval's input hash changes when any input or the model changes, and only then", () => {
@@ -202,6 +203,89 @@ abstract: We study grading.`;
   });
 });
 
+describe("the rank eval's checks", () => {
+  const EXPECTED: RankExpectation = {
+    labels: { "arxiv:1": "must-pick", "arxiv:2": "must-pick", "arxiv:3": "must-not", "arxiv:4": "don't-care", "arxiv:5": "don't-care" },
+    bars: { pick: 7, wildcard: 8 },
+    wildcardCap: 1,
+  };
+  const ranking = (id: string, score: number, wildcard = false) => ({ id, interests: wildcard ? [] : ["Agents and LLMs"], score, why: `Why ${id}.`, wildcard });
+  const REPLY = { rankings: [ranking("arxiv:1", 9), ranking("arxiv:2", 7), ranking("arxiv:3", 6), ranking("arxiv:4", 2), ranking("arxiv:5", 8, true)] };
+
+  test("passes a reply that meets every check", () => {
+    // #given
+    const reply = REPLY;
+
+    // #when
+    const failures = checkRank(reply, EXPECTED);
+
+    // #then
+    expect(failures).toEqual([]);
+  });
+
+  test("fails a reply off the schema, and checks nothing else", () => {
+    // #given
+    const reply = { rankings: [{ ...ranking("arxiv:1", 11), wildcard: "no" }] };
+
+    // #when
+    const failures = checkRank(reply, EXPECTED);
+
+    // #then
+    expect(failures).toEqual(["rankings[0].score is 11, above 10", "rankings[0].wildcard is not true or false"]);
+  });
+
+  test("names each Candidate not scored, scored twice, or not in the input", () => {
+    // #given
+    const [first, second, third, fourth] = REPLY.rankings as [ReturnType<typeof ranking>, ...ReturnType<typeof ranking>[]];
+    const reply = { rankings: [first, second, third, fourth, fourth, ranking("arxiv:9", 3)] };
+
+    // #when
+    const failures = checkRank(reply, EXPECTED);
+
+    // #then
+    expect(failures).toEqual(["arxiv:4 is scored 2 times", "arxiv:5 is not scored", "arxiv:9 is not a Candidate"]);
+  });
+
+  test("fails a must-not scored at the Pick bar", () => {
+    // #given
+    const reply = { rankings: REPLY.rankings.map((entry) => (entry.id === "arxiv:3" ? { ...entry, score: 7 } : entry)) };
+
+    // #when
+    const failures = checkRank(reply, EXPECTED);
+
+    // #then
+    expect(failures).toEqual(["the must-not arxiv:3 scored 7, not below 7"]);
+  });
+
+  test.each([
+    [4, 5, []],
+    [3, 4, ["3 of 4 must-picks scored 7 or above, fewer than 4 in every 5; missed: arxiv:p4 (6)"]],
+    [7, 9, ["7 of 9 must-picks scored 7 or above, fewer than 4 in every 5; missed: arxiv:p8 (6), arxiv:p9 (6)"]],
+  ])("needs at least 4 in every 5 must-picks at the Pick bar: %p of %p", (hits, picks, expected) => {
+    // #given
+    const ids = Array.from({ length: picks }, (_, i) => `arxiv:p${i + 1}`);
+    const labels = Object.fromEntries(ids.map((id) => [id, "must-pick" as const]));
+    const reply = { rankings: ids.map((id, i) => ranking(id, i < hits ? 7 : 6)) };
+
+    // #when
+    const failures = checkRank(reply, { ...EXPECTED, labels });
+
+    // #then
+    expect(failures).toEqual(expected);
+  });
+
+  test("fails more Wildcards at the Wildcard bar than the cap, but not flags below the bar", () => {
+    // #given
+    const reply = { rankings: [ranking("arxiv:1", 9), ranking("arxiv:2", 7), ranking("arxiv:3", 6, true), ranking("arxiv:4", 8, true), ranking("arxiv:5", 9, true)] };
+
+    // #when
+    const failures = checkRank(reply, EXPECTED);
+
+    // #then
+    expect(failures).toEqual(["2 Wildcards scored 8 or above, over the cap of 1: arxiv:4, arxiv:5"]);
+  });
+});
+
 describe("the weekly eval's checks", () => {
   const TITLES = ["TutorBench: Grading Tutoring Agents", "Memory for Course Assistants", "Context Rot in Long Sessions", "Peer Review with LLMs"];
   const PROMPT = TITLES.map((title, i) => `id: arxiv:2610.3000${i + 1}\ntitle: ${title}`).join("\n\n");
@@ -363,6 +447,127 @@ describe("the keep eval's write-dump dry run", () => {
 
     // #then
     expect(failures).toEqual(["brain-dump write-dump --dry-run refused the Dump (exit 1): brain-dump: invalid Dump body: a Learning must be one line"]);
+  });
+});
+
+describe("the rank eval", () => {
+  const candidate = (id: string, title: string) => ({ source: "arxiv", ids: [id], title, url: `https://arxiv.org/abs/${id}`, abstract: `We study ${title.toLowerCase()}.` });
+  const DAY = [
+    { label: "must-pick", candidate: candidate("arxiv:2610.40001", "Agents that plan") },
+    { label: "must-not", candidate: candidate("arxiv:2610.40002", "Protein folding") },
+    { label: "don't-care", candidate: candidate("arxiv:2610.40003", "Faster sorting") },
+  ];
+  const EDGES = [{ label: "must-pick", edge: "a boundary case", candidate: candidate("url:https://example.org/edge", "Context for coding agents") }];
+
+  /** Fixture files in a temp folder, with the committed Interests Note. */
+  function fixtures(day: { label: string }[], edges: { label: string }[]) {
+    const folder = tempDir();
+    const files = { interests: join(folder, "interests.md"), day: join(folder, "day.json"), edgeCases: join(folder, "edge-cases.json") };
+    writeFileSync(files.interests, readFileSync(join(import.meta.dir, "..", "evals", "fixtures", "rank", "interests.md")));
+    writeFileSync(files.day, JSON.stringify({ day: "2026-10-27", candidates: day }));
+    writeFileSync(files.edgeCases, JSON.stringify({ candidates: edges }));
+    return files;
+  }
+
+  const ids = (prompt: string): string[] => [...prompt.matchAll(/^id: (.+)$/gm)].map(([, id = ""]) => id);
+  /** A ranker that scores must-picks 9 and everything else 3, and a grader that gives 4. */
+  const labelled: Ask = async (_, prompt) => {
+    if (prompt.startsWith("Grade what")) return { specific: 4 };
+    const picks = new Set(["arxiv:2610.40001", "url:https://example.org/edge"]);
+    return { rankings: ids(prompt).map((id) => ({ id, interests: ["Agents and LLMs"], score: picks.has(id) ? 9 : 3, why: `Why ${id}.`, wildcard: false })) };
+  };
+  const run = async (declared: Eval) => Promise.all(declared.cases.map(({ run: once }) => once()));
+
+  test("refuses to pass, without calling the model, while any Candidate is unlabelled", async () => {
+    // #given
+    const files = fixtures([...DAY.slice(0, 2), { ...DAY[2], label: "" }], [{ ...EDGES[0], label: "" }]);
+    let calls = 0;
+    const counting: Ask = async (schema, prompt) => {
+      calls += 1;
+      return labelled(schema, prompt);
+    };
+
+    // #when
+    const results = await run(rankEval(counting, files));
+
+    // #then
+    expect({ results, calls }).toEqual({
+      results: [
+        {
+          failures: [
+            `2 of 4 Candidates have no label yet; label each must-pick, must-not or don't-care in ${files.day} and ${files.edgeCases} before a pass can be recorded`,
+          ],
+        },
+      ],
+      calls: 0,
+    });
+  });
+
+  test("refuses a label that is none of must-pick, must-not or don't-care", async () => {
+    // #given
+    const files = fixtures([...DAY.slice(0, 2), { ...DAY[2], label: "maybe" }], EDGES);
+
+    // #when
+    const results = await run(rankEval(labelled, files));
+
+    // #then
+    expect(results).toEqual([{ failures: ['arxiv:2610.40003 has the label "maybe", not must-pick, must-not or don\'t-care'] }]);
+  });
+
+  test("passes a labelled day ranked as labelled, with the advisory grade", async () => {
+    // #given
+    const files = fixtures(DAY, EDGES);
+
+    // #when
+    const results = await run(rankEval(labelled, files));
+
+    // #then
+    expect(results).toEqual([{ failures: [], grade: { scores: { specific: 4 } } }]);
+  });
+
+  test("fails a labelled day whose must-not scores at the Pick bar", async () => {
+    // #given
+    const files = fixtures(DAY, EDGES);
+    const fooled: Ask = async (schema, prompt) => {
+      const reply = (await labelled(schema, prompt)) as { rankings?: { id: string; score: number }[] };
+      return reply.rankings === undefined ? reply : { rankings: reply.rankings.map((r) => (r.id === "arxiv:2610.40002" ? { ...r, score: 8 } : r)) };
+    };
+
+    // #when
+    const [result] = await run(rankEval(fooled, files));
+
+    // #then
+    expect(result?.failures).toEqual(["the must-not arxiv:2610.40002 scored 8, not below 7"]);
+  });
+
+  test("fails with codex's own error when the call fails", async () => {
+    // #given
+    const files = fixtures(DAY, EDGES);
+    const loggedOut: Ask = async () => {
+      throw new PaperBotError("codex exec failed (exit 1): Not logged in");
+    };
+
+    // #when
+    const results = await run(rankEval(loggedOut, files));
+
+    // #then
+    expect(results).toEqual([{ failures: ["codex exec failed (exit 1): Not logged in"] }]);
+  });
+
+  test("its committed day fits one ranking batch, each Candidate once with a label column", () => {
+    // #given
+    const fixture = readRankFixtures(RANK_FIXTURES);
+
+    // #when
+    const ids = fixture.map(({ candidate }) => candidate.ids[0]);
+    const labels = new Set(fixture.map(({ label }) => label));
+
+    // #then
+    expect({
+      fits: fixture.length >= 90 && fixture.length <= testConfig().batch.size,
+      unique: new Set(ids).size === ids.length,
+      labels: [...labels].every((label) => ["", "must-pick", "must-not", "don't-care"].includes(label)),
+    }).toEqual({ fits: true, unique: true, labels: true });
   });
 });
 

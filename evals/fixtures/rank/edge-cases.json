@@ -1,0 +1,52 @@
+{
+  "candidates": [
+    {
+      "label": "",
+      "edge": "a K-12-only study, which AI in higher education avoids",
+      "candidate": {
+        "source": "eric",
+        "ids": ["url:https://example.org/paper-bot-eval/k12-algebra-tutor"],
+        "title": "An LLM Tutor for Middle-School Algebra: A Randomised Trial in Twelve Schools",
+        "authors": ["Dana Whitfield", "Arjun Mehta"],
+        "url": "https://example.org/paper-bot-eval/k12-algebra-tutor",
+        "abstract": "We deployed an LLM tutor that gives step-level hints on algebra homework to 1,840 seventh- and eighth-grade students in twelve public middle schools, randomising classrooms to the tutor or to static worked examples for one term. Students with the tutor gained 0.21 standard deviations more on the state algebra assessment, with the largest gains for students below grade level. Teachers reported that hint requests clustered on the night before tests. We discuss implications for district procurement of AI tutors."
+      }
+    },
+    {
+      "label": "",
+      "edge": "an opinion piece with no data, which AI in higher education avoids",
+      "candidate": {
+        "source": "openalex",
+        "ids": ["url:https://example.org/paper-bot-eval/lecture-provocation"],
+        "title": "Generative AI Will Not Save the Lecture: A Provocation",
+        "authors": ["Helen Marchetti"],
+        "url": "https://example.org/paper-bot-eval/lecture-provocation",
+        "abstract": "Universities are rushing to put generative AI into every course. In this essay I argue that the rush mistakes a crisis of attention for a crisis of content, and that chatbots bolted onto lecture halls will deepen rather than solve it. Drawing on my two decades of teaching, I propose that institutions slow down, protect unassessed time for thinking, and treat AI policy as a question of academic culture rather than of tools."
+      }
+    },
+    {
+      "label": "",
+      "edge": "a strong Paper outside every Interest, a likely Wildcard",
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["url:https://example.org/paper-bot-eval/ordinal-reanalysis"],
+        "title": "Most Likert-Scale Effects Shrink Under Ordinal Models: A Reanalysis of 1,214 User Studies",
+        "authors": ["Tobias Lindqvist", "Grace Okafor", "Wen Zhao"],
+        "url": "https://example.org/paper-bot-eval/ordinal-reanalysis",
+        "abstract": "Studies with people routinely analyse Likert-scale ratings as if they were interval data, with t-tests and ANOVAs on mean ratings. We collected the open data of 1,214 published user studies from psychology, education and interaction design and reanalysed every reported Likert effect with cumulative ordinal models. 31% of significant effects lost significance, 9% reversed in direction for some response categories, and effect sizes shrank by a median of 38%. We release the reanalysis pipeline and a checklist for reporting ordinal outcomes."
+      }
+    },
+    {
+      "label": "",
+      "edge": "on the boundary between Agents and LLMs and Context management in AI",
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["url:https://example.org/paper-bot-eval/coding-agent-scratchpad"],
+        "title": "What Coding Agents Forget: Tracing Context Loss Across 3,000 Long Software Tasks",
+        "authors": ["Mireille Dubois", "Samir Haddad"],
+        "url": "https://example.org/paper-bot-eval/coding-agent-scratchpad",
+        "abstract": "Coding agents working on long tasks overflow their context and summarise or truncate their history. We instrument four open coding agents on 3,000 multi-hour repository tasks and trace each failure to the step where the needed fact left the context. 42% of failures follow the loss of a fact the agent had already found, most often a test command or a file path. A scratchpad the agent writes to and reads from on demand cuts these failures by half at a 7% token cost, more than any summarisation strategy we tried."
+      }
+    }
+  ]
+}

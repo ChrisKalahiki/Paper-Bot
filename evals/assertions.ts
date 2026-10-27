@@ -4,6 +4,7 @@ import { avoidedTermsIn } from "../scripts/glossary.ts";
 import { type CatchUp, coversLine } from "../src/catch-up.ts";
 import { dayAndMonth, localDate } from "../src/clock.ts";
 import { KEEP_SCHEMA } from "../src/keep.ts";
+import { RANK_SCHEMA } from "../src/rank.ts";
 import { THEMES_SCHEMA } from "../src/weekly.ts";
 import { DAILY_SCHEMA } from "../src/write.ts";
 
@@ -28,6 +29,8 @@ export function schemaFailures(schema: JsonSchema, value: unknown, path = ""): s
   switch (schema.type) {
     case "string":
       return typeof value === "string" ? [] : [`${where} is not a string`];
+    case "boolean":
+      return typeof value === "boolean" ? [] : [`${where} is not true or false`];
     case "integer":
       if (typeof value !== "number" || !Number.isInteger(value)) return [`${where} is not a whole number`];
       if (schema.minimum !== undefined && value < schema.minimum) return [`${where} is ${value}, below ${schema.minimum}`];
@@ -196,4 +199,43 @@ export function checkTopPicks(markdown: string, urls: string[]): string[] {
     .map(([, url = ""]) => url)
     .filter((url) => !urls.includes(url))
     .map((url) => `the Top Pick ${url} is not one of the week's Picks`);
+}
+
+/** How Chris labelled a Candidate of the rank eval's day. */
+export type Label = "must-pick" | "must-not" | "don't-care";
+
+export type RankExpectation = {
+  /** Every Candidate's label, by the id the prompt gives it. */
+  labels: Record<string, Label>;
+  bars: { pick: number; wildcard: number };
+  wildcardCap: number;
+};
+
+/** Every way the ranker's reply misses the checks; empty when it passes. */
+export function checkRank(reply: unknown, expected: RankExpectation): string[] {
+  const offSchema = schemaFailures(RANK_SCHEMA, reply);
+  if (offSchema.length > 0) return offSchema;
+  const { rankings } = reply as { rankings: { id: string; interests: string[]; score: number; wildcard: boolean }[] };
+  const failures: string[] = [];
+  for (const id of Object.keys(expected.labels)) {
+    const times = rankings.filter((ranking) => ranking.id === id).length;
+    if (times !== 1) failures.push(times === 0 ? `${id} is not scored` : `${id} is scored ${times} times`);
+  }
+  for (const { id } of rankings) if (!(id in expected.labels)) failures.push(`${id} is not a Candidate`);
+  const { pick } = expected.bars;
+  const labelled = (label: Label) => rankings.filter(({ id }) => expected.labels[id] === label);
+  for (const { id, score } of labelled("must-not")) if (score >= pick) failures.push(`the must-not ${id} scored ${score}, not below ${pick}`);
+  const mustPicks = Object.values(expected.labels).filter((label) => label === "must-pick").length;
+  const missed = labelled("must-pick").filter(({ score }) => score < pick);
+  const hits = labelled("must-pick").length - missed.length;
+  if (hits * 5 < mustPicks * 4) {
+    const named = missed.map(({ id, score }) => `${id} (${score})`).join(", ");
+    failures.push(`${hits} of ${mustPicks} must-picks scored ${pick} or above, fewer than 4 in every 5; missed: ${named}`);
+  }
+  const wildcards = rankings.filter(({ wildcard, score }) => wildcard && score >= expected.bars.wildcard);
+  if (wildcards.length > expected.wildcardCap) {
+    const named = wildcards.map(({ id }) => id).join(", ");
+    failures.push(`${wildcards.length} Wildcards scored ${expected.bars.wildcard} or above, over the cap of ${expected.wildcardCap}: ${named}`);
+  }
+  return failures;
 }

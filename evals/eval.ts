@@ -4,7 +4,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { spawnExec } from "../src/command.ts";
 import { askClaude } from "./claude.ts";
 import { dailyEval } from "./daily.ts";
+import { askCodex } from "./codex.ts";
 import { keepEval, writeDumpDryRun } from "./keep.ts";
+import { rankEval } from "./rank.ts";
 import type { Grade } from "./rubric.ts";
 import { weeklyEval } from "./weekly.ts";
 
@@ -14,7 +16,12 @@ import { weeklyEval } from "./weekly.ts";
 const ROOT = join(import.meta.dir, "..");
 const PASSED_PATH = join(import.meta.dir, "passed.json");
 
-export const EVALS: Eval[] = [dailyEval(askClaude), weeklyEval(askClaude), keepEval(askClaude, writeDumpDryRun(spawnExec, "brain-dump"))];
+export const EVALS: Eval[] = [
+  rankEval(askCodex),
+  dailyEval(askClaude),
+  weeklyEval(askClaude),
+  keepEval(askClaude, writeDumpDryRun(spawnExec, "brain-dump")),
+];
 
 /**
  * Everything that, once changed, needs a fresh pass: the pinned model, every module reached through the `entries`' imports, and, as `inputs`,
