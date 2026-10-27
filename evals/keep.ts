@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { type KeptDump, writeDumpArgv } from "../src/brain-dump.ts";
 import type { CommandResult, Exec } from "../src/command.ts";
 import { messageOf, PaperBotError } from "../src/errors.ts";
@@ -7,6 +5,7 @@ import { KEEP_SCHEMA, type KeepDraft, keptDump } from "../src/keep.ts";
 import { keepPrompt } from "../src/prompts.ts";
 import type { KeepablePick } from "../src/store.ts";
 import { checkKeep } from "./assertions.ts";
+import { asked, fixtureCases } from "./case.ts";
 import { type Ask, WRITE_MODEL } from "./claude.ts";
 import type { CaseResult, Eval } from "./eval.ts";
 import { type Criterion, grade } from "./rubric.ts";
@@ -54,20 +53,15 @@ export function keepEval(ask: Ask, check: DumpCheck): Eval {
     model: WRITE_MODEL,
     entries: ["src/keep.ts", "evals/keep.ts"],
     inputs: CASES.map((fixture) => `${FIXTURES}/${fixture}`),
-    cases: CASES.map((fixture) => ({ name: fixture.replace(/\.json$/, ""), run: () => runCase(ask, check, fixture) })),
+    cases: fixtureCases<KeepFixture>(FIXTURES, CASES, (fixture) => runCase(ask, check, fixture)),
   };
 }
 
-async function runCase(ask: Ask, check: DumpCheck, fixture: string): Promise<CaseResult> {
-  const { briefing, pick } = JSON.parse(readFileSync(join(import.meta.dir, "..", FIXTURES, fixture), "utf8")) as KeepFixture;
+async function runCase(ask: Ask, check: DumpCheck, { briefing, pick }: KeepFixture): Promise<CaseResult> {
   const prompt = keepPrompt(pick);
-  let reply: unknown;
-  try {
-    reply = await ask(KEEP_SCHEMA, prompt);
-  } catch (error) {
-    if (!(error instanceof PaperBotError)) throw error;
-    return { failures: [messageOf(error)] };
-  }
+  const answer = await asked(ask, KEEP_SCHEMA, prompt);
+  if ("error" in answer) return { failures: [answer.error] };
+  const { reply } = answer;
   const failures = checkKeep(reply, prompt);
   if (failures.length > 0) return { failures };
   const dump = keptDump(pick, briefing, reply as KeepDraft);

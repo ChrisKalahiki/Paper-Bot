@@ -1,11 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { renderWeeklyBriefing, type Theme } from "../src/briefing.ts";
-import { messageOf, PaperBotError } from "../src/errors.ts";
 import { weeklyPrompt } from "../src/prompts.ts";
 import type { WeekPick } from "../src/store.ts";
 import { THEMES_SCHEMA } from "../src/weekly.ts";
 import { checkTopPicks, checkWeekly } from "./assertions.ts";
+import { asked, fixtureCases } from "./case.ts";
 import { type Ask, WRITE_MODEL } from "./claude.ts";
 import type { CaseResult, Eval } from "./eval.ts";
 import { type Criterion, grade } from "./rubric.ts";
@@ -27,21 +25,16 @@ export function weeklyEval(ask: Ask): Eval {
     model: WRITE_MODEL,
     entries: ["src/weekly.ts", "evals/weekly.ts"],
     inputs: CASES.map((fixture) => `${FIXTURES}/${fixture}`),
-    cases: CASES.map((fixture) => ({ name: fixture.replace(/\.json$/, ""), run: () => runCase(ask, fixture) })),
+    cases: fixtureCases<WeeklyFixture>(FIXTURES, CASES, (fixture) => runCase(ask, fixture)),
   };
 }
 
-async function runCase(ask: Ask, fixture: string): Promise<CaseResult> {
-  const { week: dates, interests, dailies, picks } = JSON.parse(readFileSync(join(import.meta.dir, "..", FIXTURES, fixture), "utf8")) as WeeklyFixture;
+async function runCase(ask: Ask, { week: dates, interests, dailies, picks }: WeeklyFixture): Promise<CaseResult> {
   const week = { name: dates.name, monday: new Date(dates.monday), sunday: new Date(dates.sunday) };
   const prompt = weeklyPrompt(week, picks, interests);
-  let reply: unknown;
-  try {
-    reply = await ask(THEMES_SCHEMA, prompt);
-  } catch (error) {
-    if (!(error instanceof PaperBotError)) throw error;
-    return { failures: [messageOf(error)] };
-  }
+  const answer = await asked(ask, THEMES_SCHEMA, prompt);
+  if ("error" in answer) return { failures: [answer.error] };
+  const { reply } = answer;
   const failures = checkWeekly(
     reply,
     picks.map(({ title }) => title),

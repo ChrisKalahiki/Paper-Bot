@@ -23,7 +23,7 @@ Always use `bun`, never `npm`.
 - `src/picks.ts`: `paper-bot picks --json`, the contract homeros polls (ChrisKalahiki/homeros#77). Change its shape only with homeros.
 - `src/store.ts`: SQLite. Schema changes are a new entry in `MIGRATIONS`, never an edit to a shipped one.
 - `launchd/dev.paper-bot.scan.plist`: the LaunchAgent template that `scripts/install-launch-agent.ts` fills in.
-- `evals/`: `eval.ts` (registry, input hash, `passed.json`), one module per eval (`rank.ts`, `daily.ts`, `weekly.ts`, `keep.ts`) over `fixtures/<eval>/`, `refresh-rank-fixture.ts` (freezes a real day for `rank`; Chris labels it, never an agent), `assertions.ts` (the gating checks), `rubric.ts` (the advisory grade). Each eval reaches the model through `Ask` (`askCodex` for `rank`, `askClaude` for the rest), so tests feed it canned replies.
+- `evals/`: `eval.ts` (registry, input hash, `passed.json`), one module per eval (`rank.ts`, `daily.ts`, `weekly.ts`, `keep.ts`) over `fixtures/<eval>/`, `refresh-rank-fixture.ts` (freezes a real day for `rank`; Chris labels it, never an agent), `assertions.ts` (the gating checks), `rubric.ts` (the advisory grade), `case.ts` (reading a case's fixture and asking the model), `example-config.ts` (`config.example.json`, whose pinned models the evals use). Each eval reaches the model through `Ask` (`askCodex` for `rank`, `askClaude` for the rest), so tests feed it canned replies.
 - `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, recorded responses from every source (`sourcesFetch`) and a fixed clock.
 
 ## Rules

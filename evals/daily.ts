@@ -1,13 +1,11 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { primaryId } from "../src/candidate.ts";
 import { catchUpSince } from "../src/catch-up.ts";
 import { localDate } from "../src/clock.ts";
-import { messageOf, PaperBotError } from "../src/errors.ts";
 import type { Interest } from "../src/interests.ts";
 import { dailyPrompt, type PickInput } from "../src/prompts.ts";
 import { DAILY_SCHEMA } from "../src/write.ts";
 import { checkDaily } from "./assertions.ts";
+import { asked, fixtureCases } from "./case.ts";
 import { type Ask, WRITE_MODEL } from "./claude.ts";
 import type { CaseResult, Eval } from "./eval.ts";
 import { type Criterion, grade } from "./rubric.ts";
@@ -35,12 +33,11 @@ export function dailyEval(ask: Ask): Eval {
     model: WRITE_MODEL,
     entries: ["src/write.ts", "evals/daily.ts"],
     inputs: ["GLOSSARY.md", ...CASES.map((fixture) => `${FIXTURES}/${fixture}`)],
-    cases: CASES.map((fixture) => ({ name: fixture.replace(/\.json$/, ""), run: () => runCase(ask, fixture) })),
+    cases: fixtureCases<DailyFixture>(FIXTURES, CASES, (fixture) => runCase(ask, fixture)),
   };
 }
 
-async function runCase(ask: Ask, fixture: string): Promise<CaseResult> {
-  const { at, coveredThrough, interests, picks } = JSON.parse(readFileSync(join(import.meta.dir, "..", FIXTURES, fixture), "utf8")) as DailyFixture;
+async function runCase(ask: Ask, { at, coveredThrough, interests, picks }: DailyFixture): Promise<CaseResult> {
   const day = new Date(at);
   const covers = catchUpSince(coveredThrough, localDate(day));
   const prompt = dailyPrompt(
@@ -48,13 +45,9 @@ async function runCase(ask: Ask, fixture: string): Promise<CaseResult> {
     interests,
     day,
   );
-  let reply: unknown;
-  try {
-    reply = await ask(DAILY_SCHEMA, prompt);
-  } catch (error) {
-    if (!(error instanceof PaperBotError)) throw error;
-    return { failures: [messageOf(error)] };
-  }
+  const answer = await asked(ask, DAILY_SCHEMA, prompt);
+  if ("error" in answer) return { failures: [answer.error] };
+  const { reply } = answer;
   const ids = picks.map(({ candidate }) => primaryId(candidate));
   const failures = checkDaily(reply, { ids, ...(covers === undefined ? {} : { covers }) }, prompt);
   return { failures, grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)) };

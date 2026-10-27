@@ -1,14 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type Candidate, primaryId } from "../src/candidate.ts";
-import { messageOf, PaperBotError } from "../src/errors.ts";
 import { parseInterestsNote } from "../src/interests.ts";
 import { rankPrompt } from "../src/prompts.ts";
 import { RANK_SCHEMA } from "../src/rank.ts";
 import { checkRank, type Label } from "./assertions.ts";
-import { type Ask, EXAMPLE_CONFIG } from "./claude.ts";
+import { asked } from "./case.ts";
+import type { Ask } from "./claude.ts";
 import { RANK_MODEL } from "./codex.ts";
 import type { CaseResult, Eval } from "./eval.ts";
+import { EXAMPLE_CONFIG } from "./example-config.ts";
 import { type Criterion, grade } from "./rubric.ts";
 
 // The production ranking prompt and schema on one frozen real day of Candidates plus hand-written edge cases, checked against Chris's labels.
@@ -75,13 +76,9 @@ async function runDay(ask: Ask, files: RankFixtureFiles): Promise<CaseResult> {
     labelled.map(({ candidate }) => candidate),
     note,
   );
-  let reply: unknown;
-  try {
-    reply = await ask(RANK_SCHEMA, prompt);
-  } catch (error) {
-    if (!(error instanceof PaperBotError)) throw error;
-    return { failures: [messageOf(error)] };
-  }
+  const answer = await asked(ask, RANK_SCHEMA, prompt);
+  if ("error" in answer) return { failures: [answer.error] };
+  const { reply } = answer;
   const labels = Object.fromEntries(labelled.map(({ label, candidate }) => [primaryId(candidate), label as Label]));
   const failures = checkRank(reply, { labels, bars: EXAMPLE_CONFIG.bars, wildcardCap: note.wildcards.cap });
   return { failures, grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)) };

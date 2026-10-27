@@ -1,5 +1,5 @@
-import { messageOf, PaperBotError } from "../src/errors.ts";
 import { schemaFailures } from "./assertions.ts";
+import { asked } from "./case.ts";
 import type { Ask } from "./claude.ts";
 
 // The advisory grade: the pinned model scores a reply 1–5 per criterion. It is printed beside the result and never gates.
@@ -15,13 +15,9 @@ export async function grade(ask: Ask, criteria: Criterion[], input: string, outp
     required: criteria.map(({ name }) => name),
     properties: Object.fromEntries(criteria.map(({ name }) => [name, { type: "integer", minimum: 1, maximum: 5 }])),
   };
-  let reply: unknown;
-  try {
-    reply = await ask(schema, gradingPrompt(criteria, input, output));
-  } catch (error) {
-    if (!(error instanceof PaperBotError)) throw error;
-    return { error: messageOf(error) };
-  }
+  const answer = await asked(ask, schema, gradingPrompt(criteria, input, output));
+  if ("error" in answer) return answer;
+  const { reply } = answer;
   const failures = schemaFailures(schema, reply);
   if (failures.length > 0) return { error: `grader replied off the schema: ${failures.join("; ")}` };
   return { scores: reply as Record<string, number> };
