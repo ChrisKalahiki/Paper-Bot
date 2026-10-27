@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { lastWeek } from "../src/clock.ts";
 import type { Fetch } from "../src/http.ts";
 import { dailyScan } from "../src/scan.ts";
 import { scheduledScans } from "../src/schedule.ts";
 import { openStore } from "../src/store.ts";
+import { weeklyScan } from "../src/weekly.ts";
 import { arxivApiOf, arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, MONDAY, sourcesFetch, tempDir, testConfig } from "./harness.ts";
 
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
@@ -41,6 +43,10 @@ const daily = (box: Sandbox, commands: FakeCommands, at: Date, fetch: Fetch) =>
 /** `paper-bot scan` at `at`, when every source has nothing new. */
 const scheduled = (box: Sandbox, commands: FakeCommands, at: Date) =>
   withStore(box, (store) => scheduledScans({ config: testConfig(), store, fetch: sourcesFetch(), exec: commands.exec, clock: () => at, logDir: box.logDir, sleep: fakeSleep() }));
+
+/** `paper-bot scan --weekly` at `at`. */
+const weekly = (box: Sandbox, commands: FakeCommands, at: Date) =>
+  withStore(box, (store) => weeklyScan({ config: testConfig(), store, fetch: sourcesFetch(), exec: commands.exec, clock: () => at, logDir: box.logDir, sleep: fakeSleep() }, lastWeek(at)));
 
 /** Daily Briefings on Tue 20 and Thu 22 Oct (2026-W43), the second catching up on the 21st: four Picks, one a Wildcard. */
 async function weekOfPicks(box: Sandbox, commands: FakeCommands): Promise<void> {
@@ -283,6 +289,45 @@ describe("paper-bot scan on another day", () => {
     expect({ weekly: results[1], scans: (await weeklyScans(box)).map(({ outcome }) => outcome) }).toEqual({
       weekly: { kind: "weekly", outcome: "written", briefing: WEEKLY },
       scans: ["failed", "written"],
+    });
+  });
+});
+
+describe("paper-bot scan --weekly again", () => {
+  test("reports the week's Weekly Briefing already written, writing nothing and recording no failed Scan", async () => {
+    // #given
+    const box = sandbox();
+    const commands = fakeCommands({ rankings: RANKINGS });
+    await weekOfPicks(box, commands);
+    await scheduled(box, commands, MONDAY);
+    const again = fakeCommands({ notes: Object.fromEntries(commands.vault) });
+
+    // #when
+    const result = await weekly(box, again, TUESDAY);
+
+    // #then
+    expect({ result, commands: again.calls.length, scans: (await weeklyScans(box)).map(({ outcome }) => outcome) }).toEqual({
+      result: { outcome: "already written", briefing: WEEKLY },
+      commands: 0,
+      scans: ["written"],
+    });
+  });
+
+  test("reports a Weekly Briefing the store lost as already written, not failed", async () => {
+    // #given
+    const box = sandbox();
+    const commands = fakeCommands({ rankings: RANKINGS });
+    await weekOfPicks(box, commands);
+    commands.vault.set(WEEKLY, "written before the store was lost");
+
+    // #when
+    const result = await weekly(box, commands, MONDAY);
+
+    // #then
+    expect({ result, failed: (await weeklyScans(box)).some(({ outcome }) => outcome === "failed"), note: commands.vault.get(WEEKLY) }).toEqual({
+      result: { outcome: "already written", briefing: WEEKLY },
+      failed: false,
+      note: "written before the store was lost",
     });
   });
 });

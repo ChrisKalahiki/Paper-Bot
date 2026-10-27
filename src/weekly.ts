@@ -4,7 +4,7 @@ import { type IsoWeek, localDate } from "./clock.ts";
 import { PaperBotError } from "./errors.ts";
 import { weeklyPrompt } from "./prompts.ts";
 import { retryOnce } from "./retry.ts";
-import { readInterests, recordedScan, type ScanDeps, type ScanResult } from "./scan.ts";
+import { alreadyWritten, readInterests, recordedScan, type ScanDeps, type ScanResult } from "./scan.ts";
 import { claudeJson, oneLine } from "./write.ts";
 
 export const THEMES_SCHEMA = {
@@ -52,7 +52,9 @@ export function weeklyScan(scanDeps: ScanDeps, week: IsoWeek): Promise<ScanResul
         log,
       );
       const dailies = store.writtenBriefings({ kind: "daily", from, to });
-      const briefing = await brainDump.writeBriefing(weeklyBriefingPath(week), renderWeeklyBriefing({ week, themes, interests, picks, dailies }));
+      const path = weeklyBriefingPath(week);
+      const briefing = await brainDump.writeBriefing(path, renderWeeklyBriefing({ week, themes, interests, picks, dailies }));
+      if (briefing === null) return alreadyWritten(path);
       log(`wrote ${briefing}`);
       return { outcome: "written", briefing };
     },

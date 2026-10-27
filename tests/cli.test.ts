@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { lastWeek, localDate } from "../src/clock.ts";
 import { parseConfig } from "../src/config.ts";
 import { openStore } from "../src/store.ts";
 import { tempDir, testConfig } from "./harness.ts";
@@ -139,6 +140,29 @@ describe("paper-bot scan --weekly", () => {
       stdout: /^Weekly Scan skipped: no Picks in \d{4}-W\d{2}\n$/.test(result.stdout),
       kinds: store.scans().map(({ kind }) => kind),
     }).toEqual({ exitCode: 0, stdout: true, kinds: ["weekly"] });
+  });
+
+  test("reports a Weekly Briefing already written and exits 0, starting no Scan", () => {
+    // #given
+    const sandbox = home();
+    writeConfig(sandbox, testConfig({ brainDump: unreachableBrainDump(sandbox) }));
+    const week = lastWeek(new Date());
+    const briefing = `Research/Briefings/Weekly/${week.name} Weekly Briefing.md`;
+    const store = openStore(sandbox.storePath);
+    store.settleScan(store.startScan("weekly", localDate(week.monday), new Date()), { outcome: "written", briefing, sources: {}, at: new Date() }, []);
+    store.close();
+
+    // #when
+    const result = paperBot(sandbox, ["scan", "--weekly"]);
+
+    // #then
+    const reopened = openStore(sandbox.storePath);
+    expect({ exitCode: result.exitCode, stdout: result.stdout, scans: reopened.scans().length }).toEqual({
+      exitCode: 0,
+      stdout: `Weekly Scan already written: ${briefing}\n`,
+      scans: 1,
+    });
+    reopened.close();
   });
 });
 

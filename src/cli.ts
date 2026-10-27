@@ -41,10 +41,11 @@ async function scan(scans: (deps: ScanDeps) => Promise<SettledScan[]>): Promise<
   const store = openStore(where.store);
   try {
     const settled = await scans({ config, store, fetch: httpFetch, exec: spawnExec, clock: systemClock, logDir: where.logs, sleep: systemSleep });
-    for (const { kind, outcome, reason, briefing } of settled) {
-      const name = SCAN_NAMES[kind];
-      if (outcome === "failed") process.stderr.write(`paper-bot: ${name} failed: ${reason}\n`);
-      else process.stdout.write(outcome === "written" ? `${name} wrote ${briefing}\n` : `${name} skipped: ${reason}\n`);
+    for (const result of settled) {
+      const name = SCAN_NAMES[result.kind];
+      if (result.outcome === "already written") process.stdout.write(`${name} already written: ${result.briefing}\n`);
+      else if (result.outcome === "failed") process.stderr.write(`paper-bot: ${name} failed: ${result.reason}\n`);
+      else process.stdout.write(result.outcome === "written" ? `${name} wrote ${result.briefing}\n` : `${name} skipped: ${result.reason}\n`);
     }
     return settled.some(({ outcome }) => outcome === "failed") ? 1 : 0;
   } finally {

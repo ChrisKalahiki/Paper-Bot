@@ -32,17 +32,22 @@ const LOG_DAYS = 90;
 /** Everything a Scan touches outside itself, so tests can drive the real pipeline against fakes. */
 export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string; sleep: Sleep };
 
-export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string };
+/** How a Scan settled; a Scan whose Briefing is already written settles nothing, leaving its scores to the next Scan. */
+export type ScanResult = { outcome: Outcome; reason?: string; briefing?: string } | { outcome: "already written"; briefing: string };
 
 export const SCAN_NAMES: Record<ScanKind, string> = { daily: "Daily Scan", weekly: "Weekly Scan" };
 
 /** How a Scan's pipeline settles it; `picks` are those of the Briefing it wrote. */
 type Settling = ScanResult & { picks?: PickRecord[] };
 
+/** What a pipeline returns when `write-briefing` finds its Briefing at `path` already in the Vault. */
+export const alreadyWritten = (path: string): ScanResult => ({ outcome: "already written", briefing: path });
+
 /**
  * Opens the log and the record of a Scan dated `date`, hands them to `pipeline` with an Exec that logs each command, and
  * settles the record with what the pipeline returns, or as failed on a PaperBotError. Any other error is logged and thrown.
- * `about` follows the Scan's id in its first log line.
+ * When a Scan of `kind` dated `date` already wrote its Briefing, it starts no Scan; when the pipeline finds its Briefing
+ * already in the Vault, it settles nothing. `about` follows the Scan's id in its first log line.
  */
 export async function recordedScan(
   scanDeps: ScanDeps,
@@ -54,11 +59,20 @@ export async function recordedScan(
   const { store, clock } = scanDeps;
   const name = SCAN_NAMES[kind];
   const log = openScanLog(scanDeps.logDir, kind, clock);
+  const [written] = store.writtenBriefings({ kind, from: date, to: date });
+  if (written !== undefined) {
+    log(`${name} not started: ${written} is already written`);
+    return { outcome: "already written", briefing: written };
+  }
   const deps = { ...scanDeps, exec: loggingExec(scanDeps.exec, log) };
   const scan: ScanContext = { scanId: store.startScan(kind, date, clock()), log, sources: {}, rankingFailures: [] };
   log(`${name} ${scan.scanId}${about === "" ? "" : ` ${about}`} started`);
 
   const settle = ({ picks = [], ...result }: Settling): ScanResult => {
+    if (result.outcome === "already written") {
+      log(`${name} left unsettled: ${result.briefing} is already written`);
+      return result;
+    }
     store.settleScan(scan.scanId, { ...result, sources: scan.sources, at: clock() }, picks);
     log(`${name} ${result.outcome}${result.reason ? `: ${result.reason}` : ""}`);
     return result;
@@ -130,7 +144,9 @@ async function daily(deps: ScanDeps, scan: ScanContext): Promise<Settling> {
     issues: note.issues,
     keepIssues,
   });
-  const briefing = await brainDump.writeBriefing(dailyBriefingPath(startedAt), markdown);
+  const path = dailyBriefingPath(startedAt);
+  const briefing = await brainDump.writeBriefing(path, markdown);
+  if (briefing === null) return alreadyWritten(path);
   log(`wrote ${briefing}`);
   return {
     outcome: "written",

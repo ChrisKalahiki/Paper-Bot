@@ -35,9 +35,13 @@ export function loggingExec(exec: Exec, log: (message: string) => void): Exec {
 
 /** The command's stdout, or a PaperBotError naming `what` with its exit status and the first line it printed. */
 export async function runCommand(exec: Exec, what: string, argv: string[], options: { stdin?: string; timeoutMs: number }): Promise<string> {
-  const result = await exec(argv, options);
+  return commandOutput(what, await exec(argv, options), options);
+}
+
+/** A finished command's stdout, or a PaperBotError naming `what` with its exit status and the first line it printed. */
+export function commandOutput(what: string, result: CommandResult, { timeoutMs }: { timeoutMs: number }): string {
   if (result.exitCode === 0) return result.stdout;
-  const status = result.exitCode === null ? `timed out after ${options.timeoutMs / 1000}s` : `exit ${result.exitCode}`;
+  const status = result.exitCode === null ? `timed out after ${timeoutMs / 1000}s` : `exit ${result.exitCode}`;
   const said = (result.stderr.trim() || result.stdout.trim()).split("\n")[0];
   throw new PaperBotError(`${what} failed (${status})${said ? `: ${said}` : ""}`);
 }

@@ -1,4 +1,4 @@
-import { type Exec, parseJson, runCommand } from "./command.ts";
+import { commandOutput, type Exec, parseJson, runCommand } from "./command.ts";
 import { PaperBotError } from "./errors.ts";
 
 const TIMEOUT_MS = 60_000;
@@ -7,8 +7,8 @@ const TIMEOUT_MS = 60_000;
 export type BrainDump = {
   /** The whole text of a Vault note (`show --full`). */
   show(note: string): Promise<string>;
-  /** Creates a Briefing note (`write-briefing`); Brain-Dump refuses one that already exists. Returns the note's path. */
-  writeBriefing(note: string, markdown: string): Promise<string>;
+  /** Creates a Briefing note (`write-briefing`). Returns the note's path, or null when the note already exists, which Brain-Dump refuses to replace. */
+  writeBriefing(note: string, markdown: string): Promise<string | null>;
   /** Writes a Kept Pick as a Dump in the Inbox (`write-dump --origin briefing`). Returns the Dump's path. */
   writeDump(dump: KeptDump): Promise<string>;
 };
@@ -26,8 +26,10 @@ export function brainDumpCli(exec: Exec, command: string): BrainDump {
       return output.text;
     },
     async writeBriefing(note, markdown) {
-      const stdout = await runCommand(exec, "brain-dump write-briefing", [command, "write-briefing", "--note", note], { stdin: markdown, timeoutMs: TIMEOUT_MS });
-      const output = parseJson("brain-dump write-briefing", stdout);
+      const options = { stdin: markdown, timeoutMs: TIMEOUT_MS };
+      const result = await exec([command, "write-briefing", "--note", note], options);
+      if (result.exitCode === 1 && result.stderr.includes(`${note} already exists`)) return null;
+      const output = parseJson("brain-dump write-briefing", commandOutput("brain-dump write-briefing", result, options));
       if (typeof output !== "object" || output === null || !("note" in output) || typeof output.note !== "string") {
         throw new PaperBotError("brain-dump write-briefing printed no note path");
       }

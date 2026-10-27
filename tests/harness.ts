@@ -168,6 +168,7 @@ export function fakeCommands(
     codex?: Handler;
     claude?: Handler;
     brainDump?: Handler;
+    writeBriefing?: Handler;
     writeDump?: Handler;
   } = {},
 ): FakeCommands {
@@ -182,6 +183,7 @@ export function fakeCommands(
       if (text === undefined) return failed(`brain-dump: ${note} is not a note in the write allowlist\n`);
       return ok(JSON.stringify({ note, hash: "0123456789abcdef", text, truncated: false }));
     }
+    if (command === "write-briefing" && options.writeBriefing !== undefined) return options.writeBriefing(argv, stdin);
     if (command === "write-briefing" && rest[0] === "--note" && rest[1] !== undefined) {
       if (vault.has(rest[1])) return failed(`brain-dump: ${rest[1]} already exists\n`);
       vault.set(rest[1], stdin);

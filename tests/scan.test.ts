@@ -373,15 +373,64 @@ picks: 2
   test("fails, recording no Picks, when brain-dump refuses the Briefing", async () => {
     // #given
     const { storePath, logDir } = sandbox();
-    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: "already here" } });
+    const refused = { exitCode: 1, stdout: "", stderr: "brain-dump: Vault not found at /nowhere\n" };
+    const commands = fakeCommands({ rankings: PICKED, writeBriefing: () => refused });
 
     // #when
     const result = await scan({ commands, storePath, logDir });
 
     // #then
     expect({ result, picks: stored(storePath).picks }).toEqual({
-      result: { outcome: "failed", reason: `brain-dump write-briefing failed (exit 1): brain-dump: ${BRIEFING} already exists` },
+      result: { outcome: "failed", reason: "brain-dump write-briefing failed (exit 1): brain-dump: Vault not found at /nowhere" },
       picks: [],
+    });
+  });
+
+  describe("again on a day whose Daily Briefing is written", () => {
+    test("reports it already written, fetching, ranking and writing nothing, and records no Scan", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      const first = fakeCommands({ rankings: PICKED });
+      await scan({ commands: first, storePath, logDir });
+      const again = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(first.vault) });
+      const fetch = arxivFetch();
+
+      // #when
+      const result = await scan({ commands: again, storePath, logDir, fetch });
+
+      // #then
+      expect({ result, commands: again.calls.length, fetched: fetch.urls.length, scans: stored(storePath).scans.map(({ outcome }) => outcome) }).toEqual({
+        result: { outcome: "already written", briefing: BRIEFING },
+        commands: 0,
+        fetched: 0,
+        scans: ["written"],
+      });
+    });
+
+    test("reports a Briefing the store lost as already written, not failed, leaving its Picks for the next Scan", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: "written before the store was lost" } });
+      const result = await scan({ commands, storePath, logDir });
+      const tuesday = fakeCommands({ rankings: PICKED });
+
+      // #when
+      const next = await scan({ commands: tuesday, storePath, logDir, at: TUESDAY });
+
+      // #then
+      expect({
+        result,
+        failed: stored(storePath).scans.some(({ outcome }) => outcome === "failed"),
+        next,
+        codex: codexCalls(tuesday).length,
+        picks: stored(storePath).picks.map(({ paper }) => paper),
+      }).toEqual({
+        result: { outcome: "already written", briefing: BRIEFING },
+        failed: false,
+        next: { outcome: "written", briefing: "Research/Briefings/Daily/2026-10-27 Daily Briefing.md" },
+        codex: 0,
+        picks: ["arxiv:2610.31679", "arxiv:2610.32109"],
+      });
     });
   });
 
@@ -953,7 +1002,7 @@ describe("a Daily Scan that meets failures", () => {
       });
     });
 
-    test("is safe to repeat: a third run writes nothing and records no Picks twice", async () => {
+    test("is safe to repeat: a third Scan writes nothing and records no Picks twice", async () => {
       // #given
       const { storePath, logDir, rerun } = await failedThenRerun();
       const third = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(rerun.vault) });
@@ -963,7 +1012,7 @@ describe("a Daily Scan that meets failures", () => {
 
       // #then
       expect({ result, written: third.calls.some(({ argv }) => argv[1] === "write-briefing"), picks: stored(storePath).picks.length }).toEqual({
-        result: { outcome: "skipped", reason: "no new Candidates" },
+        result: { outcome: "already written", briefing: BRIEFING },
         written: false,
         picks: 2,
       });

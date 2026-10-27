@@ -29,6 +29,8 @@ It exits 1 when the Scan failed. Picks are chosen from the scores saved since th
 
 `paper-bot scan` with no flag is what the schedule starts: the Daily Scan, then the Weekly Scan of last week unless a Weekly Scan already wrote or skipped it. That is every Monday, and any later day when Monday's was missed or failed; only last week is caught up. It exits 1 when either Scan failed.
 
+Starting a Scan again is safe. `scan --daily` on a day whose Daily Briefing is written, or `scan --weekly` for a week whose Weekly Briefing is, starts no Scan and prints that the Briefing is already written, exiting 0. When `write-briefing` refuses a Briefing because its note already exists (say the store was lost), the Scan prints the same and records no failure; its scores wait, unsettled, for the next Scan.
+
 ## Picks for homeros
 
 `paper-bot picks --json` prints what homeros's paper-bot Source polls (the contract is in ChrisKalahiki/homeros#77). It needs no config and writes no data: before the first Scan it prints no Scans or Picks and creates no store, and after an upgrade it brings an older store's schema up to date. It exits 1 only when it can't read the store.
