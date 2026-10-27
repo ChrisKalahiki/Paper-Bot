@@ -17,8 +17,13 @@ const wildcardRule = ({ cap, hint }: Wildcards): string =>
     : `true only when it matches no Interest but could still matter to a researcher in AI, education and HCI; Chris takes at most ${cap} a day, so flag only the strongest${hint ? `. His hint: ${hint}` : ""}`;
 
 export function rankPrompt(batch: Candidate[], { interests, wildcards }: InterestsNote): string {
-  const candidates = batch.map((candidate) => `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\nabstract: ${candidate.abstract || "none"}`).join("\n\n");
-  return `You rank new research Papers for Chris against his Interests. Use only the titles and abstracts below; do not browse or execute commands.
+  const candidates = batch
+    .map(
+      (candidate) =>
+        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\nabstract: ${candidate.abstract || "none"}${candidate.signals ? `\nsignals: ${candidate.signals.join("; ")}` : ""}`,
+    )
+    .join("\n\n");
+  return `You rank new research Papers for Chris against his Interests. Use only the titles, abstracts and signals below; do not browse or execute commands. A Candidate's signals say what else points at it, such as HF daily papers, a lab announcing it or a Venue accepting it: weigh them as context for your judgement, never as points added to a score.
 
 His Interests, each with the Venues he watches and what he wants left out:
 

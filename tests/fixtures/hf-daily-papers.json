@@ -1,0 +1,31 @@
+[
+  {
+    "paper": {
+      "id": "2610.32109",
+      "authors": [{ "name": "Ada Okafor" }],
+      "publishedAt": "2026-10-23T17:59:58.000Z",
+      "title": "Context or Knowledge: How LLMs Attribute Their Own Answers",
+      "summary": "We ask LLMs where their answers came from.",
+      "upvotes": 41,
+      "githubStars": 120,
+      "ai_summary": "LLMs misattribute answers to their context.",
+      "ai_keywords": ["attribution", "context"]
+    },
+    "publishedAt": "2026-10-26T03:12:40.000Z",
+    "title": "Context or Knowledge: How LLMs Attribute Their Own Answers",
+    "numComments": 2
+  },
+  {
+    "paper": {
+      "id": "2610.29001v2",
+      "authors": [{ "name": "Li Wei" }],
+      "publishedAt": "2026-10-22T11:00:00.000Z",
+      "title": "Scaling Video Tokenizers",
+      "summary": "A video tokenizer that scales with data.",
+      "upvotes": 12
+    },
+    "publishedAt": "2026-10-26T06:40:00.000Z",
+    "title": "Scaling Video Tokenizers",
+    "numComments": 0
+  }
+]

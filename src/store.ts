@@ -74,6 +74,12 @@ const MIGRATIONS = [
     since TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE lab_posts (
+    url TEXT PRIMARY KEY,
+    read_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export type ScanKind = "daily" | "weekly";
@@ -142,6 +148,9 @@ export type Store = {
   keeps(): KeepRow[];
   /** Records a Keep's Dump, or the error of a failed try; a later try replaces it. */
   recordKeep(scanId: number, paper: string, briefing: string, kept: { dump: string } | { error: string }, at: Date): void;
+  /** The lab post URLs, of those given, that no Scan has read. */
+  unreadPosts(urls: string[]): string[];
+  markPostsRead(urls: string[], at: Date): void;
   close(): void;
 };
 
@@ -174,6 +183,11 @@ export function openStore(path: string): Store {
     `INSERT INTO keeps (paper_id, scan_id, briefing, dump, error, at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error, at = excluded.at`,
   );
+  const findPost = db.query<{ url: string }, [string]>("SELECT url FROM lab_posts WHERE url = ?");
+  const insertPost = db.query("INSERT OR IGNORE INTO lab_posts (url, read_at) VALUES (?, ?)");
+  const markPostsRead = db.transaction((urls: string[], at: string) => {
+    for (const url of urls) insertPost.run(url, at);
+  });
   const idsOf = db.query<{ id: string }, [number]>("SELECT id FROM paper_ids WHERE paper_id = ? ORDER BY rowid");
   const deletePending = db.query("DELETE FROM pending WHERE id = ?");
   const upsertPending = db.query(
@@ -301,6 +315,8 @@ export function openStore(path: string): Store {
       if (paperId === undefined) throw new PaperBotError(`Kept Paper ${paper} is not in the store`);
       upsertKeep.run(paperId, scanId, briefing, "dump" in kept ? kept.dump : null, "error" in kept ? kept.error : null, at.toISOString());
     },
+    unreadPosts: (urls) => urls.filter((url) => findPost.get(url) === null),
+    markPostsRead: (urls, at) => markPostsRead(urls, at.toISOString()),
     close: () => db.close(),
   };
 }

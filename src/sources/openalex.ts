@@ -13,13 +13,19 @@ const WINDOW_DAYS = 14;
 
 const FIELDS = "id,doi,title,ids,primary_location,locations,best_oa_location,abstract_inverted_index";
 
-export type OpenAlexOptions = { key: string; /** OpenAlex source ids of the watched Venues. */ venues: string[] };
+export type OpenAlexOptions = {
+  key: string;
+  /** OpenAlex source ids of the watched Venues. */
+  venues: string[];
+  /** Venue names by OpenAlex source id: a work published in one is marked as accepted there. */
+  names?: Record<string, string>;
+};
 
 type Work = {
   id?: string;
   doi?: string | null;
   title?: string | null;
-  primary_location?: { landing_page_url?: string | null } | null;
+  primary_location?: { landing_page_url?: string | null; source?: { id?: string } | null } | null;
   locations?: { landing_page_url?: string | null }[] | null;
   best_oa_location?: { pdf_url?: string | null } | null;
   abstract_inverted_index?: Record<string, number[]> | null;
@@ -39,7 +45,7 @@ export async function fetchOpenAlexCandidates(fetch: Fetch, options: OpenAlexOpt
   const candidates: Candidate[] = [];
   for (const filter of filters) {
     for (const work of await allWorks(fetch, filter, options.key)) {
-      const candidate = toCandidate(work);
+      const candidate = toCandidate(work, options.names ?? {});
       if (candidate !== undefined) candidates.push(candidate);
     }
   }
@@ -61,11 +67,12 @@ async function allWorks(fetch: Fetch, filter: string, key: string): Promise<Work
   return works;
 }
 
-function toCandidate(work: Work): Candidate | undefined {
+function toCandidate(work: Work, names: Record<string, string>): Candidate | undefined {
   const title = work.title?.replace(/\s+/g, " ").trim();
   const openalex = work.id?.match(/W\d+$/)?.[0];
   if (!title || openalex === undefined) return undefined;
   const doi = work.doi ? doiIds(work.doi) : [];
+  const venue = names[work.primary_location?.source?.id?.match(/S\d+$/)?.[0] ?? ""];
   const preprints = (work.locations ?? []).flatMap((location) => (location.landing_page_url ? arxivIdsInUrl(location.landing_page_url) : []));
   return {
     source: "openalex",
@@ -74,6 +81,7 @@ function toCandidate(work: Work): Candidate | undefined {
     url: work.doi ? `https://doi.org/${bareDoi(work.doi)}` : (work.primary_location?.landing_page_url ?? `https://openalex.org/${openalex}`),
     abstract: abstractOf(work.abstract_inverted_index),
     ...(work.best_oa_location?.pdf_url ? { pdf: work.best_oa_location.pdf_url } : {}),
+    ...(venue === undefined ? {} : { signals: [`accepted at ${venue}`] }),
   };
 }
 

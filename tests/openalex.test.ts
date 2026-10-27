@@ -79,6 +79,17 @@ describe("the OpenAlex source", () => {
     ]);
   });
 
+  test("tells the ranker a work was accepted at a Venue it knows, by the Venue's common name", async () => {
+    // #given
+    const { fetch } = recording();
+
+    // #when
+    const candidates = await fetchOpenAlexCandidates(fetch, { key: "KEY", venues: [], names: { S4363607743: "CHI" } }, MONDAY);
+
+    // #then
+    expect(candidates.map((candidate) => candidate.signals)).toEqual([["accepted at CHI"], undefined, undefined]);
+  });
+
   test("follows the cursor until the last page", async () => {
     // #given
     const page = (title: string, next: string | null) =>

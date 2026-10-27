@@ -24,7 +24,7 @@ export function element(xml: string, tag: string): string | undefined {
   return (cdata ?? decodeEntities(text)).trim();
 }
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text
     .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
