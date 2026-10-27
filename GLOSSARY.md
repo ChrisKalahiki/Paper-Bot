@@ -33,7 +33,7 @@ A Pick outside every Interest, chosen because paper-bot judges it could still ma
 _Avoid_: bonus, serendipity pick, extra
 
 **Scan**:
-One scheduled execution of paper-bot: a Daily Scan fetches Candidates, ranks them and writes at most one Daily Briefing; a Weekly Scan fetches nothing and writes the Weekly Briefing from that week's Picks. A Scan with no Picks is skipped, not failed.
+One scheduled execution of paper-bot: a Daily Scan fetches Candidates, ranks them and writes at most one Daily Briefing; a Weekly Scan fetches nothing and writes the Weekly Briefing from that week's Picks. A Scan with no Picks is skipped, not failed; a Scan fails only when it cannot settle its Briefing at all, and losing some sources or ranking batches only degrades it.
 _Avoid_: run (a Brain-Dump Run is one set of Vault changes), job, pass
 
 **Briefing**:
