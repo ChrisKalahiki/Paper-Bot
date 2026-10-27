@@ -21,7 +21,7 @@ describe("the arXiv source", () => {
     expect(requested).toEqual(["https://rss.arxiv.org/rss/cs.AI+cs.CL+cs.HC"]);
   });
 
-  test("keeps new and cross-listed Papers, with their ids, title, link and abstract", async () => {
+  test("keeps new and cross-listed Papers, with their ids, title, authors, link and abstract", async () => {
     // #given
     const fetch = async () => new Response(FEED);
 
@@ -34,6 +34,7 @@ describe("the arXiv source", () => {
         source: "arxiv",
         ids: ["arxiv:2610.32109", "doi:10.48550/arxiv.2610.32109"],
         title: "Context or Knowledge: How LLMs Attribute Their Own Answers",
+        authors: ["Afendulev", "Dontsov", "Chepurova"],
         url: "https://arxiv.org/abs/2610.32109",
         abstract: "Editing the KV cache shows a model's report of where an answer came from ignores the document & follows the Q+A cache.",
       },
@@ -41,6 +42,7 @@ describe("the arXiv source", () => {
         source: "arxiv",
         ids: ["arxiv:2610.31679", "doi:10.48550/arxiv.2610.31679"],
         title: "MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring",
+        authors: ["Lee", "Woo", "Kim"],
         url: "https://arxiv.org/abs/2610.31679",
         abstract: "Five open-weight tutors over 5,000+ simulated dialogues; how you score them changes who looks good.",
       },

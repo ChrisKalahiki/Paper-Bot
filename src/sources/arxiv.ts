@@ -26,6 +26,7 @@ function parseArxivRss(xml: string): Candidate[] {
         source: "arxiv" as const,
         ids: [`arxiv:${id}`, `doi:10.48550/arxiv.${id.toLowerCase()}`],
         title: collapse(title),
+        authors: (element(item, "dc:creator") ?? "").split(",").map(collapse).filter((name) => name !== ""),
         url: link,
         abstract: collapse((element(item, "description") ?? "").replace(/^[\s\S]*?Abstract:/, "")),
       },
