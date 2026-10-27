@@ -45,7 +45,7 @@ describe("the OpenAlex source", () => {
     expect(requested.map((url) => url.searchParams.get("filter")?.split(":")[0])).toEqual(["primary_topic.subfield.id"]);
   });
 
-  test("gives each work its id set, title, link and rebuilt abstract", async () => {
+  test("gives each work its id set, title, link, rebuilt abstract and open-access PDF", async () => {
     // #given
     const { fetch } = recording();
 
@@ -60,6 +60,7 @@ describe("the OpenAlex source", () => {
         title: "Students Steering LLM Tutors: A Field Study",
         url: "https://doi.org/10.1145/3772318.3790001",
         abstract: "Students steer tutors and trust tutors",
+        pdf: "https://arxiv.org/pdf/2609.11111v2",
       },
       {
         source: "openalex",

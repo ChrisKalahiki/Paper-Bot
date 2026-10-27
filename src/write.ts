@@ -2,14 +2,14 @@ import { primaryId } from "./candidate.ts";
 import { type Exec, parseJson, runCommand } from "./command.ts";
 import { PaperBotError } from "./errors.ts";
 import type { Interest } from "./interests.ts";
-import { dailyPrompt, type PickInput } from "./prompts.ts";
+import { dailyPrompt, type PickToWrite } from "./prompts.ts";
 
 const WRITE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** The prose of a Daily Briefing; code lays out everything else. `picks` is keyed by each Pick's primary id. */
 export type DailyProse = { take: string; picks: Map<string, { why: string; summary: string }> };
 
-export type Writer = (picks: PickInput[], interests: Interest[], at: Date) => Promise<DailyProse>;
+export type Writer = (picks: PickToWrite[], interests: Interest[], at: Date) => Promise<DailyProse>;
 
 const DAILY_SCHEMA = {
   type: "object",
@@ -65,7 +65,7 @@ function structuredOutput(envelope: unknown): unknown {
   return envelope.structured_output;
 }
 
-function readProse(output: unknown, picks: PickInput[]): DailyProse {
+function readProse(output: unknown, picks: PickToWrite[]): DailyProse {
   if (typeof output !== "object" || output === null || !("take" in output) || typeof output.take !== "string" || !("picks" in output) || !Array.isArray(output.picks)) {
     throw new PaperBotError("claude -p returned prose in the wrong shape");
   }

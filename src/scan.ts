@@ -5,6 +5,7 @@ import { type Clock, localDate } from "./clock.ts";
 import type { Exec } from "./command.ts";
 import type { Config } from "./config.ts";
 import { messageOf, PaperBotError } from "./errors.ts";
+import { readFullTexts } from "./full-text.ts";
 import type { Fetch } from "./http.ts";
 import { INTERESTS_NOTE, type InterestsNote, parseInterestsNote } from "./interests.ts";
 import { keepTicked } from "./keep.ts";
@@ -20,6 +21,7 @@ import type { Outcome, SourceResults, Store } from "./store.ts";
 import { claudeWriter } from "./write.ts";
 
 const MAX_PICKS = 5;
+const ALSO_CONSIDERED = 6;
 
 /** Everything a Scan touches outside itself, so tests can run the real pipeline against fakes. */
 export type ScanDeps = { config: Config; store: Store; fetch: Fetch; exec: Exec; clock: Clock; logDir: string };
@@ -60,17 +62,20 @@ export async function dailyScan(deps: ScanDeps): Promise<ScanResult> {
     const picks = choosePicks(ranked, config.bars, note.wildcards.cap);
     if (picks.length === 0) return settle({ outcome: "skipped", reason: `no Candidate scored ${config.bars.pick} or above` });
 
-    const prose = await claudeWriter(deps.exec, config.models.write)(picks, note.interests, startedAt);
-    const rendered = picks.map(({ candidate, ranking }) => {
+    const toWrite = await readFullTexts(deps.fetch, picks, log);
+    const prose = await claudeWriter(deps.exec, config.models.write)(toWrite, note.interests, startedAt);
+    const rendered = toWrite.map(({ candidate, ranking, fullText }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
-      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written };
+      return { candidate, interests: ranking.interests, wildcard: ranking.wildcard, ...written, fromAbstract: fullText === undefined };
     });
     const markdown = renderDailyBriefing({
       at: startedAt,
       take: prose.take,
       picks: rendered,
+      alsoConsidered: alsoConsidered(ranked, picks),
       candidates: countBySource(ranked),
+      failedSources: failedSources(sources),
       issues: note.issues,
       keepIssues,
     });
@@ -191,6 +196,24 @@ function choosePicks(ranked: Ranked[], bars: Config["bars"], wildcardCap: number
     ...best((ranking) => ranking.score >= bars.pick && ranking.interests.length > 0, MAX_PICKS),
     ...best((ranking) => ranking.score >= bars.wildcard && ranking.interests.length === 0 && ranking.wildcard, wildcardCap),
   ];
+}
+
+/** The best ranked Candidates that are not Picks, Candidates with no abstract among them. Each best first; ties keep fetch order. */
+function alsoConsidered(ranked: Ranked[], picks: Ranked[]): Candidate[] {
+  return ranked
+    .filter((entry) => !picks.includes(entry))
+    .sort((a, b) => b.ranking.score - a.ranking.score)
+    .slice(0, ALSO_CONSIDERED)
+    .map(({ candidate }) => candidate);
+}
+
+function failedSources(sources: SourceResults): Partial<Record<SourceName, string>> {
+  const failed: Partial<Record<SourceName, string>> = {};
+  for (const source of Object.keys(SOURCE_LABELS) as SourceName[]) {
+    const result = sources[source];
+    if (result !== undefined && "error" in result) failed[source] = result.error;
+  }
+  return failed;
 }
 
 function countBySource(ranked: Ranked[]): Partial<Record<Candidate["source"], number>> {

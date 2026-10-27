@@ -14,6 +14,8 @@ export type Candidate = {
   authors?: string[];
   url: string;
   abstract: string;
+  /** An open-access PDF of the Paper, when OpenAlex knows one. */
+  pdf?: string;
 };
 
 /** An arXiv Paper's ids: its arXiv id without the version, and the DOI arXiv registers for it. */
@@ -53,8 +55,8 @@ export function primaryId(candidate: Candidate): string {
 export type Ranking = { interests: string[]; score: number; why: string; wildcard: boolean };
 
 /**
- * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids (and an abstract, if
- * it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
+ * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids (and an abstract or
+ * PDF, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned as a conflict.
  */
 export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[]; conflicts: Candidate[] } {
   const merged: Candidate[] = [];
@@ -69,7 +71,10 @@ export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[];
     }
     const kept = match ?? { ...candidate, ids: [] };
     if (match === undefined) merged.push(kept);
-    else if (kept.abstract === "") kept.abstract = candidate.abstract;
+    else {
+      if (kept.abstract === "") kept.abstract = candidate.abstract;
+      kept.pdf ??= candidate.pdf;
+    }
     for (const id of candidate.ids) {
       if (owner.has(id)) continue;
       owner.set(id, kept);
