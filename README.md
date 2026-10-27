@@ -27,6 +27,24 @@ It exits 1 when the Scan failed. Picks are chosen from the scores saved since th
 
 `paper-bot scan` with no flag is what the schedule starts: the Daily Scan, then the Weekly Scan of last week unless a Weekly Scan already wrote or skipped it. That is every Monday, and any later day when Monday's was missed or failed; only last week is caught up. It exits 1 when either Scan failed.
 
+## Picks for homeros
+
+`paper-bot picks --json` prints what homeros's paper-bot Source polls (the contract is in ChrisKalahiki/homeros#77). It opens the store read-only, needs no config, and exits 1 only when it can't read the store.
+
+```json
+{ "scans": { "daily":  { "at": "…", "date": "2026-10-26", "outcome": "briefing | skipped | failed", "reason": "…", "sources": [{ "name": "arxiv", "ok": true, "error": null }] },
+             "weekly": { "at": "…", "week": "2026-W43", "outcome": "briefing | skipped | failed", "reason": "…" } },
+  "keeps": { "failing": [{ "id": "…", "title": "…", "error": "…", "since": "…" }] },
+  "week": "2026-W44",
+  "picks": [{ "id": "arxiv:2610.32109", "title": "…", "url": "…", "date": "2026-10-26",
+              "interests": ["Context management in AI"], "wildcard": false, "why": "…",
+              "kept": false, "keptAt": null, "briefing": "Research/Briefings/Daily/2026-10-26 Daily Briefing.md" }] }
+```
+
+- `scans.daily` and `scans.weekly` are the last settled Scan of each kind, or `null` before the first. `at` is when it settled, and `reason` is `null` when there is none. A Weekly Scan's `week` is the ISO week it covers.
+- `keeps.failing` lists Keeps whose last try failed; `since` is that try.
+- `week` is the current ISO week, and `picks` are the Picks of its Daily Briefings, by date and rank. `keptAt` is when the Pick's Keep wrote its Dump.
+
 ## Setup
 
 ```sh

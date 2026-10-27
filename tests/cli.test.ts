@@ -108,7 +108,7 @@ describe("paper-bot scan --daily", () => {
     const result = paperBot(sandbox, ["sweep"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n" });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n" });
   });
 
   test("--daily and --weekly together is a usage error", () => {
@@ -119,7 +119,7 @@ describe("paper-bot scan --daily", () => {
     const result = paperBot(sandbox, ["scan", "--daily", "--weekly"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n" });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n" });
   });
 });
 

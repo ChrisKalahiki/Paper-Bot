@@ -18,6 +18,7 @@ Always use `bun`, never `npm`.
 - `src/command.ts`: `Exec`, the one way to start `codex`, `claude` and `brain-dump`.
 - `src/sources/`: one module per source, fetching through `Fetch` (`src/http.ts`) and returning `Candidate`s; pointers (HF, the labs) return `Pointers`, which `src/pointers.ts` gathers and attaches as signals.
 - `src/rank.ts` (`codex exec`), `src/write.ts` (`claude -p`), `src/prompts.ts` (their prompts), `src/full-text.ts` (Picks' arXiv HTML or open-access PDF as text), `src/briefing.ts` (renders the note), `src/brain-dump.ts` (Vault access).
+- `src/picks.ts`: `paper-bot picks --json`, the contract homeros polls (ChrisKalahiki/homeros#77). Change its shape only with homeros.
 - `src/store.ts`: SQLite. Schema changes are a new entry in `MIGRATIONS`, never an edit to a shipped one.
 - `tests/harness.ts`: fake `codex`, `claude` and `brain-dump`, recorded responses from every source (`sourcesFetch`) and a fixed clock.
 

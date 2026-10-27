@@ -5,13 +5,14 @@ import { spawnExec } from "./command.ts";
 import { loadConfig, paths } from "./config.ts";
 import { PaperBotError, UsageError } from "./errors.ts";
 import { httpFetch } from "./http.ts";
+import { picksReport } from "./picks.ts";
 import { systemSleep } from "./retry.ts";
 import { dailyScan, type ScanDeps } from "./scan.ts";
 import { type SettledScan, scheduledScans } from "./schedule.ts";
 import { openStore, type ScanKind } from "./store.ts";
 import { weeklyScan } from "./weekly.ts";
 
-const USAGE = "usage: paper-bot scan [--daily | --weekly]";
+const USAGE = "usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json";
 
 const SCAN_NAMES: Record<ScanKind, string> = { daily: "Daily Scan", weekly: "Weekly Scan" };
 
@@ -24,6 +25,10 @@ async function main(argv: string[]): Promise<number> {
       if (daily) return await scan(async (deps) => [{ kind: "daily", ...(await dailyScan(deps)) }]);
       if (weekly) return await scan(async (deps) => [{ kind: "weekly", ...(await weeklyScan(deps, lastWeek(deps.clock()))) }]);
       return await scan(scheduledScans);
+    }
+    case "picks": {
+      if (!parseOptions(rest, { json: { type: "boolean" } }).json) throw new UsageError(USAGE);
+      return picks();
     }
     default:
       throw new UsageError(USAGE);
@@ -43,6 +48,17 @@ async function scan(scans: (deps: ScanDeps) => Promise<SettledScan[]>): Promise<
       else process.stdout.write(outcome === "written" ? `${name} wrote ${briefing}\n` : `${name} skipped: ${reason}\n`);
     }
     return settled.some(({ outcome }) => outcome === "failed") ? 1 : 0;
+  } finally {
+    store.close();
+  }
+}
+
+/** Prints the latest Scans, failing Keeps and this week's Picks as the JSON homeros polls, reading the store read-only. */
+function picks(): number {
+  const store = openStore(paths(process.env).store, { readonly: true });
+  try {
+    process.stdout.write(`${JSON.stringify(picksReport(store, systemClock()))}\n`);
+    return 0;
   } finally {
     store.close();
   }
