@@ -9,9 +9,9 @@ const WRITE_TIMEOUT_MS = 10 * 60 * 1000;
 /** The prose of a Daily Briefing; code lays out everything else. `picks` is keyed by each Pick's primary id. */
 export type DailyProse = { take: string; picks: Map<string, { why: string; summary: string }> };
 
-export type Writer = (picks: PickToWrite[], interests: Interest[], at: Date) => Promise<DailyProse>;
+export type Writer = (picks: PickToWrite[], interests: Interest[], at: Date, since?: Date) => Promise<DailyProse>;
 
-const DAILY_SCHEMA = {
+export const DAILY_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["take", "picks"],
@@ -30,7 +30,7 @@ const DAILY_SCHEMA = {
 };
 
 export function claudeWriter(exec: Exec, model: string): Writer {
-  return async (picks, interests, at) => readProse(await claudeJson(exec, model, DAILY_SCHEMA, dailyPrompt(picks, interests, at)), picks);
+  return async (picks, interests, at, since) => readProse(await claudeJson(exec, model, DAILY_SCHEMA, dailyPrompt(picks, interests, at, since)), picks);
 }
 
 /** `claude -p` with no tools, MCP servers, settings or saved session: text in, schema-shaped JSON out. */

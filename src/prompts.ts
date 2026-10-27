@@ -71,7 +71,8 @@ Use only what is given above. Write no Todos or Decisions.
 `;
 }
 
-export function dailyPrompt(picks: PickToWrite[], interests: Interest[], at: Date): string {
+/** `since` is the first day a catch-up Briefing covers; undefined when it covers only `at`. */
+export function dailyPrompt(picks: PickToWrite[], interests: Interest[], at: Date, since?: Date): string {
   const listed = picks
     .map(
       ({ candidate, ranking, fullText }) =>
@@ -87,7 +88,7 @@ Today's Picks, best first:
 ${listed}
 
 Return:
-- take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them;
+- take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them${since === undefined ? "" : `; this Briefing catches up on ${longDate(since)} to ${longDate(at)}, so the take names those dates`};
 - picks: one entry per Pick, with its id exactly as given, a why line of at most 30 words on why it matters to Chris, and a summary of one or two sentences on what the Paper did and found, drawn from its full text where it has one.
 
 Use only what is given above. Include no URLs, and name no Paper that is not listed.

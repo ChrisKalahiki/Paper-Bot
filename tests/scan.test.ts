@@ -705,6 +705,44 @@ OpenAlex failed: OpenAlex answered 503
 `);
   });
 
+  const settledBefore = (storePath: string, date: string, outcome: "written" | "skipped" | "failed") => {
+    const store = openStore(storePath);
+    const at = new Date(`${date}T12:00:00Z`);
+    store.settleScan(store.startScan("daily", date, at), { outcome, sources: {}, at }, []);
+    store.close();
+  };
+
+  test("asks for a take naming the days it catches up on when the last written or skipped Daily Scan was before yesterday", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    settledBefore(storePath, "2026-10-23", "written");
+    settledBefore(storePath, "2026-10-25", "failed");
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(claudePrompt(commands).match(/^.*catches up.*$/gm)).toEqual([
+      "- take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them; this Briefing catches up on Sat 24 Oct 2026 to Mon 26 Oct 2026, so the take names those dates;",
+    ]);
+  });
+
+  test("asks for no catch-up when the last Daily Scan settled yesterday, or none ever did", async () => {
+    // #given
+    const yesterday = sandbox();
+    settledBefore(yesterday.storePath, "2026-10-25", "skipped");
+    const first = sandbox();
+    const [afterYesterday, afterNone] = [fakeCommands({ rankings: PICKED }), fakeCommands({ rankings: PICKED })];
+
+    // #when
+    await scan({ commands: afterYesterday, ...yesterday });
+    await scan({ commands: afterNone, ...first });
+
+    // #then
+    expect([claudePrompt(afterYesterday), claudePrompt(afterNone)].map((prompt) => prompt.includes("catches up"))).toEqual([false, false]);
+  });
+
   test("fetches full text for the Picks only", async () => {
     // #given
     const { storePath, logDir } = sandbox();

@@ -73,7 +73,8 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
 
     const toWrite = await readFullTexts(deps.fetch, picks, log);
     const write = claudeWriter(deps.exec, config.models.write);
-    const prose = await retryOnce("Writing the Daily Briefing", () => write(toWrite, note.interests, startedAt), deps.sleep, log);
+    const since = catchUpSince(store, startedAt);
+    const prose = await retryOnce("Writing the Daily Briefing", () => write(toWrite, note.interests, startedAt, since), deps.sleep, log);
     const rendered = toWrite.map(({ candidate, ranking, fullText }) => {
       const written = prose.picks.get(primaryId(candidate));
       if (written === undefined) throw new PaperBotError(`no prose for ${primaryId(candidate)}`);
@@ -103,6 +104,21 @@ export async function dailyScan(scanDeps: ScanDeps): Promise<ScanResult> {
     }
     return settle({ outcome: "failed", reason: error.message });
   }
+}
+
+/**
+ * The first day a catch-up Briefing covers: the day after the last Daily Scan that wrote or skipped its Briefing, since a failed
+ * one's scores are still waiting. Undefined when that was yesterday or no such Scan exists.
+ */
+function catchUpSince(store: Store, at: Date): Date | undefined {
+  const last = store
+    .scans()
+    .filter(({ kind, outcome }) => kind === "daily" && (outcome === "written" || outcome === "skipped"))
+    .at(-1);
+  if (last === undefined) return undefined;
+  const [year = 0, month = 1, day = 1] = last.date.split("-").map(Number);
+  const since = new Date(year, month - 1, day + 1);
+  return localDate(since) < localDate(at) ? since : undefined;
 }
 
 export async function readInterests(brainDump: BrainDump, knownVenues: string[]): Promise<InterestsNote> {
