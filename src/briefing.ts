@@ -16,12 +16,17 @@ export type DailyBriefing = {
   candidates: Partial<Record<SourceName, number>>;
   /** What paper-bot could not read in the Interests Note. */
   issues: string[];
+  /** Footer paragraphs on failed Keeps and ignored Keep lines. */
+  keepIssues: string[];
 };
 
 /** The Obsidian block id that ties a Keep tick back to its Paper: `pick-` and the Paper's id, with each stretch of other characters as `-`. */
 export function pickBlockId(candidate: Candidate): string {
-  const id = primaryId(candidate).replace(/^[a-z]+:/, "");
-  return `pick-${id.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return blockIdOf(primaryId(candidate));
+}
+
+export function blockIdOf(paper: string): string {
+  return `pick-${paper.replace(/^[a-z]+:/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 }
 
 /** Variant B, a ranked list: the take, then each Pick with its Interests, why, summary and Keep box, then the Candidate counts. */
@@ -38,6 +43,7 @@ export function renderDailyBriefing(briefing: DailyBriefing): string {
   const footer = [
     [`${total} candidates`, ...counts.map(([source, count]) => `${SOURCE_LABELS[source]} ${count}`)].join(" · "),
     ...(briefing.issues.length > 0 ? [`Interests Note issues: ${briefing.issues.join("; ")}`] : []),
+    ...briefing.keepIssues,
   ].join("\n\n");
   return `---
 tags: [briefing, briefing/daily]

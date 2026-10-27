@@ -254,7 +254,10 @@ picks: 2
     const result = await scan({ commands, storePath, logDir, at: TUESDAY });
 
     // #then
-    expect({ result, commands: commandNames(commands) }).toEqual({ result: { outcome: "skipped", reason: "no new Candidates" }, commands: ["brain-dump show"] });
+    expect({ result, commands: commandNames(commands).filter((name) => name !== "brain-dump show") }).toEqual({
+      result: { outcome: "skipped", reason: "no new Candidates" },
+      commands: [],
+    });
   });
 
   test("ranks in batches, one read-only codex exec each, with the pinned model and an output schema", async () => {

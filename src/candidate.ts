@@ -10,6 +10,8 @@ export type Candidate = {
   source: SourceName;
   ids: string[];
   title: string;
+  /** As the source names them; absent when the source gives none. */
+  authors?: string[];
   url: string;
   abstract: string;
 };

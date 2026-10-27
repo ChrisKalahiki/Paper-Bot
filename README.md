@@ -14,6 +14,8 @@ paper-bot finds new research Papers in Chris's Interests and writes Briefings ab
 6. has `claude -p` write the take and each Pick's why and summary, renders the Daily Briefing and writes it with `brain-dump write-briefing` to `Research/Briefings/Daily/<date> Daily Briefing.md`;
 7. records the Scan and its Picks in the store.
 
+Before step 1, every Scan sends Picks Chris ticked as Keep to the Inbox. It reads each Briefing of the last 30 days with `brain-dump show --full` and finds the ticked `- [x] Keep … ^pick-<id>` lines. For each Paper not yet kept, `claude -p` drafts a header and 2–4 Learnings, and `brain-dump write-dump --origin briefing --briefing <note> --paper <id> --project <first Interest> --slug <title>` writes them as a Dump. A Paper is kept once ever; unticking it later changes nothing. The `keeps` table records each Dump, or the error of a failed write, which is retried on the next Scan. Failed Keeps, and ticked Keep lines with a missing or edited id, are noted in the footer of the Briefing the Scan writes.
+
 It exits 1 when the Scan failed. Each Scan logs to `~/Library/Logs/paper-bot/<date>-daily.log`.
 
 ## Setup
@@ -37,7 +39,7 @@ The config lives at `$XDG_CONFIG_HOME/paper-bot/config.json` (default `~/.config
 
 The store is SQLite at `$XDG_DATA_HOME/paper-bot/paper-bot.db` (default `~/.local/share`); `PAPER_BOT_DB` overrides the path.
 
-`codex` and `claude` must be logged in, and `brain-dump` must have `write-briefing`.
+`codex` and `claude` must be logged in, and `brain-dump` must have `write-briefing` and the Briefing origin of `write-dump`.
 
 ## Checks
 

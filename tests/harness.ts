@@ -99,10 +99,17 @@ export const idsIn = (prompt: string): string[] => [...new Set([...prompt.matchA
 
 /**
  * Fake `codex`, `claude` and `brain-dump`. `codex` scores each Candidate from `rankings` (unlisted ones score 0),
- * `claude` writes fixed prose for each Pick, and `brain-dump` serves and writes notes in `vault`.
+ * `claude` writes fixed prose for each Pick or Keep, and `brain-dump` serves and writes notes and Dumps in `vault`.
  */
 export function fakeCommands(
-  options: { rankings?: Record<string, FakeRanking>; notes?: Record<string, string>; codex?: Handler; claude?: Handler; brainDump?: Handler } = {},
+  options: {
+    rankings?: Record<string, FakeRanking>;
+    notes?: Record<string, string>;
+    codex?: Handler;
+    claude?: Handler;
+    brainDump?: Handler;
+    writeDump?: Handler;
+  } = {},
 ): FakeCommands {
   const vault = new Map(Object.entries(options.notes ?? { [INTERESTS_NOTE]: INTERESTS }));
   const calls: FakeCommands["calls"] = [];
@@ -117,17 +124,19 @@ export function fakeCommands(
       }),
     );
 
-  const claude: Handler = (_argv, stdin) =>
+  const claude: Handler = (argv, stdin) =>
     ok(
       JSON.stringify({
         type: "result",
         subtype: "success",
         is_error: false,
         result: "",
-        structured_output: {
-          take: "Today leans toward context.",
-          picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
-        },
+        structured_output: argv.some((arg) => arg.includes('"learnings"'))
+          ? { header: `Header of ${idsIn(stdin)[0]}`, learnings: [`First Learning of ${idsIn(stdin)[0]}`, `Second Learning of ${idsIn(stdin)[0]}`] }
+          : {
+              take: "Today leans toward context.",
+              picks: idsIn(stdin).map((id) => ({ id, why: `Why ${id}.`, summary: `What ${id} found.` })),
+            },
       }),
     );
 
@@ -144,7 +153,15 @@ export function fakeCommands(
       vault.set(rest[1], stdin);
       return ok(JSON.stringify({ note: rest[1], run: "r-1" }));
     }
+    if (command === "write-dump") return (options.writeDump ?? writeDump)(argv, stdin);
     return { exitCode: 2, stdout: "", stderr: `brain-dump: unknown ${command}\n` };
+  };
+
+  const writeDump: Handler = (argv, stdin) => {
+    const flag = (name: string): string | undefined => argv[argv.indexOf(name) + 1];
+    const path = `Inbox/2026-10-27 0600 ${flag("--project")} - ${flag("--slug")}.md`;
+    vault.set(path, stdin);
+    return ok(`${path}\n`);
   };
 
   const handlers: Record<string, Handler> = {
