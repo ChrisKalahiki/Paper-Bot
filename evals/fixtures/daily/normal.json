@@ -65,6 +65,19 @@
       },
       "ranking": { "interests": ["AI in higher education", "Context management in AI"], "score": 7, "why": "Long context against retrieval for a university course assistant, with cost.", "wildcard": false },
       "fullText": "Retrieval Over Lecture Transcripts Beats Longer Context for Course Q&A. 2 Setup. Three courses (statistics, organic chemistry, macroeconomics) recorded 96 lectures. Students asked 1,800 questions through the course forum, each graded by a TA. 4 Results. Retrieval of 8 passages: 71% correct; 1M-token context: 62% correct; cost per question $0.004 against $0.21. On the 140 questions that spanned three or more lectures, long context led by 12 points."
+    },
+    {
+      "candidate": {
+        "source": "openalex",
+        "ids": ["doi:10.1145/3706598.3713012", "openalex:W4409876543"],
+        "title": "Hint Timing in Step-Based Algebra Tutors: A Classroom Replication",
+        "authors": ["Maya Okafor", "Kenneth R. Koedinger"],
+        "url": "https://doi.org/10.1145/3706598.3713012",
+        "abstract": "Step-based tutors give hints either on request or after an error. We replicate a lab study of hint timing in eight middle-school algebra classrooms (n = 236) over six weeks. Students who received a hint immediately after their second error on a step finished 11% more problems than those who could only request hints, but showed no difference on a delayed post-test. Students who requested hints least benefited most from the immediate hints."
+      },
+      "ranking": { "interests": [], "score": 3, "why": "A middle-school tutoring study, outside the Interests.", "wildcard": false },
+      "groups": ["Koedinger lab"],
+      "fullText": null
     }
   ]
 }

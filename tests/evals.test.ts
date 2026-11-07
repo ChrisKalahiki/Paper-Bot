@@ -620,7 +620,7 @@ describe("the evals on their fixtures", () => {
     const failures = await run(dailyEval(forgetful));
 
     // #then
-    expect(failures).toEqual({ normal: ["arxiv:2610.19033 has no entry"], thin: ["arxiv:2610.19702 has no entry"], "catch-up": ["arxiv:2610.21890 has no entry"] });
+    expect(failures).toEqual({ normal: ["doi:10.1145/3706598.3713012 has no entry"], thin: ["arxiv:2610.19702 has no entry"], "catch-up": ["arxiv:2610.21890 has no entry"] });
   });
 
   test("an eval fails a case with claude's own error when the call fails", async () => {
