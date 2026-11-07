@@ -1535,6 +1535,19 @@ Followed Groups: Koedinger lab 1
     expect(prompt).toContain(`id: ${GROUP_PAPER}\ntitle: Students Steering LLM Tutors: A Field Study\nfollowed group: Koedinger lab\n`);
   });
 
+  test("lists the Picks to the writer best first, never mentioning Followed Groups, on a day with no Pick from one", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving() });
+
+    // #then
+    const prompt = commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+    expect({ heading: prompt.includes("Today's Picks, best first:\n"), mentions: /followed group/i.test(prompt) }).toEqual({ heading: true, mentions: false });
+  });
+
   describe("when OpenAlex shows a Followed Group wrote a Paper an earlier Scan ranked", () => {
     const PREPRINT = "arxiv:2610.32109";
     const ofPreprint = groupWork({ doi: null, locations: [{ landing_page_url: "https://arxiv.org/abs/2610.32109" }] });

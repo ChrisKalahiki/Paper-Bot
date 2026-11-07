@@ -79,14 +79,15 @@ export function dailyPrompt(picks: PickToWrite[], interests: Interest[], at: Dat
         `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\n${groups?.length ? `followed group: ${groups.join(", ")}\n` : ""}interests: ${ranking.interests.join(", ") || (ranking.wildcard && !groups?.length ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract || "none"}\nfull text: ${fullText ?? (candidate.abstract ? "none; write from the abstract" : "none; write from the title alone, saying only what it states")}`,
     )
     .join("\n\n");
-  const followed = picks.some(({ groups }) => groups?.length)
+  const anyFollowed = picks.some(({ groups }) => groups?.length);
+  const followed = anyFollowed
     ? "\n\nA Pick with a followed group is here because Chris follows a group of researchers who wrote it, whatever its ranking; its why line says whether it bears on his Interests."
     : "";
   return `You write the prose of Chris's Daily Briefing for ${longDate(at)}. Code lays out the note; you return only the prose, as JSON.
 
 His Interests: ${interests.map((interest) => interest.name).join("; ")}.
 
-Today's Picks, the ranked ones best first, then those from Followed Groups:
+Today's Picks, ${anyFollowed ? "the ranked ones best first, then those from Followed Groups" : "best first"}:
 
 ${listed}${followed}
 
