@@ -29,6 +29,8 @@ export type Candidate = {
   title: string;
   /** As the source names them; absent when the source gives none. */
   authors?: string[];
+  /** The OpenAlex ids of its authors, which tie it to a Followed Group; absent when the source gives none. */
+  authorIds?: string[];
   url: string;
   abstract: string;
   /** An open-access PDF of the Paper, when OpenAlex knows one. */
@@ -91,8 +93,8 @@ export function primaryId(candidate: Candidate): string {
 export type Ranking = { interests: string[]; score: number; why: string; wildcard: boolean };
 
 /**
- * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids and signals (and an
- * abstract or PDF, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned
+ * Folds Candidates that share an id into the first of them, whose id set gains the later ones' ids, signals and author
+ * ids (and an abstract or PDF, if it had none). A Candidate whose ids match two different earlier Candidates is left out and returned
  * as a conflict.
  */
 export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[]; conflicts: Candidate[] } {
@@ -112,6 +114,7 @@ export function mergeCandidates(candidates: Candidate[]): { merged: Candidate[];
       if (kept.abstract === "") kept.abstract = candidate.abstract;
       kept.pdf ??= candidate.pdf;
       if (candidate.signals !== undefined) kept.signals = [...new Set([...(kept.signals ?? []), ...candidate.signals])];
+      if (candidate.authorIds !== undefined) kept.authorIds = [...new Set([...(kept.authorIds ?? []), ...candidate.authorIds])];
     }
     for (const id of candidate.ids) {
       if (owner.has(id)) continue;

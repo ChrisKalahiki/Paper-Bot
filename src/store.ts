@@ -80,6 +80,11 @@ const MIGRATIONS = [
     read_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE papers ADD COLUMN author_ids TEXT;
+  ALTER TABLE pending ADD COLUMN author_ids TEXT;
+  ALTER TABLE picks ADD COLUMN groups TEXT;
+  `,
 ];
 
 export type ScanKind = "daily" | "weekly";
@@ -90,7 +95,8 @@ export type SourceResults = Record<string, { candidates: number } | { error: str
 
 export type Settlement = { outcome: Outcome; reason?: string; briefing?: string; sources: SourceResults; at: Date };
 
-export type PickRecord = { candidate: Candidate; rank: number; why: string; summary: string };
+/** `groups` names the Followed Groups that wrote a Pick chosen for them rather than by ranking. */
+export type PickRecord = { candidate: Candidate; rank: number; why: string; summary: string; groups?: string[] };
 
 export type ScanRow = {
   id: number;
@@ -124,7 +130,7 @@ export type FailingKeep = { paper: string; title: string; error: string; at: str
 
 /**
  * A Pick as a Weekly Briefing lists it: `date` and `briefing` are those of the Daily Briefing it appeared in; `kept` once
- * its Keep's Dump is written, at `keptAt`.
+ * its Keep's Dump is written, at `keptAt`. `groups` names the Followed Groups it was Picked for, empty for a ranked Pick.
  */
 export type WeekPick = {
   paper: string;
@@ -134,6 +140,7 @@ export type WeekPick = {
   score: number;
   interests: string[];
   wildcard: boolean;
+  groups: string[];
   why: string;
   summary: string;
   briefing: string;
@@ -145,10 +152,12 @@ export type PickRow = { scanId: number; paper: string; title: string; rank: numb
 
 export type Store = {
   /**
-   * The stored Papers the Candidate's ids belong to. When that is exactly one, the Candidate's other ids join its id
-   * set; when it is more, nothing is merged.
+   * The stored Papers the Candidate's ids belong to. When that is exactly one, the Candidate's other ids and author ids
+   * join that Paper's; when it is more, nothing is merged.
    */
   matchKnown(candidate: Candidate): number[];
+  /** The rankings of those of `papers` never Picked and first seen at or after `since`, in the order they were ranked. */
+  unpickedRankings(papers: number[], since: Date): { candidate: Candidate; ranking: Ranking }[];
   /** `date` is the day a Daily Scan's Briefing is named for, or the Monday of the week a Weekly Scan covers. */
   startScan(kind: ScanKind, date: string, at: Date): number;
   /** Saves one ranking batch: each Candidate becomes a Paper with its ids and score, and leaves pending. */
@@ -198,9 +207,11 @@ export function openStore(path: string, { existing = false } = {}): Store {
   const findId = db.query<{ paper_id: number }, [string]>("SELECT paper_id FROM paper_ids WHERE id = ?");
   const paperOf = (candidate: Candidate): number | undefined => findId.get(primaryId(candidate))?.paper_id;
 
-  const insertPaper = db.query<{ id: number }, [string, string, string | null, string, string | null, string, string]>(
-    "INSERT INTO papers (title, url, authors, abstract, pdf, source, first_seen) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+  const insertPaper = db.query<{ id: number }, [string, string, string | null, string | null, string, string | null, string, string]>(
+    "INSERT INTO papers (title, url, authors, author_ids, abstract, pdf, source, first_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
   );
+  const authorIdsOf = db.query<{ author_ids: string | null }, [number]>("SELECT author_ids FROM papers WHERE id = ?");
+  const setAuthorIds = db.query("UPDATE papers SET author_ids = ? WHERE id = ?");
   const insertId = db.query("INSERT INTO paper_ids (id, paper_id) VALUES (?, ?)");
 
   const matchKnown = db.transaction((candidate: Candidate): number[] => {
@@ -208,11 +219,14 @@ export function openStore(path: string, { existing = false } = {}): Store {
     const [paper] = papers;
     if (papers.length === 1 && paper !== undefined) {
       for (const id of candidate.ids) if (findId.get(id) === null) insertId.run(id, paper);
+      const stored = parseList(authorIdsOf.get(paper)?.author_ids ?? null) ?? [];
+      const authorIds = [...new Set([...stored, ...(candidate.authorIds ?? [])])];
+      if (authorIds.length > stored.length) setAuthorIds.run(JSON.stringify(authorIds), paper);
     }
     return papers;
   });
   const insertScore = db.query("INSERT INTO scores (paper_id, scan_id, score, interests, why, wildcard) VALUES (?, ?, ?, ?, ?, ?)");
-  const insertPick = db.query("INSERT INTO picks (scan_id, paper_id, rank, why, summary) VALUES (?, ?, ?, ?, ?)");
+  const insertPick = db.query("INSERT INTO picks (scan_id, paper_id, rank, why, summary, groups) VALUES (?, ?, ?, ?, ?, ?)");
   const upsertKeep = db.query(
     `INSERT INTO keeps (paper_id, scan_id, briefing, dump, error, at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (paper_id) DO UPDATE SET scan_id = excluded.scan_id, briefing = excluded.briefing, dump = excluded.dump, error = excluded.error,
@@ -226,15 +240,31 @@ export function openStore(path: string, { existing = false } = {}): Store {
   const idsOf = db.query<{ id: string }, [number]>("SELECT id FROM paper_ids WHERE paper_id = ? ORDER BY rowid");
   const deletePending = db.query("DELETE FROM pending WHERE id = ?");
   const upsertPending = db.query(
-    `INSERT INTO pending (id, ids, source, title, authors, url, abstract, pdf, since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET ids = excluded.ids, title = excluded.title, authors = excluded.authors, url = excluded.url,
-       abstract = excluded.abstract, pdf = excluded.pdf`,
+    `INSERT INTO pending (id, ids, source, title, authors, author_ids, url, abstract, pdf, since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET ids = excluded.ids, title = excluded.title, authors = excluded.authors, author_ids = excluded.author_ids,
+       url = excluded.url, abstract = excluded.abstract, pdf = excluded.pdf`,
   );
   const primaryIdOf = "(SELECT id FROM paper_ids WHERE paper_id = papers.id ORDER BY rowid LIMIT 1)";
 
+  /** The stored rankings of the Papers `where` selects, in the order they were ranked. */
+  const rankings = (where: string, params: (string | number)[] = []): { candidate: Candidate; ranking: Ranking }[] =>
+    db
+      .query<CandidateRow & { id: number; score: number; interests: string; why: string; wildcard: number }, (string | number)[]>(
+        `SELECT papers.id, papers.source, papers.title, papers.authors, papers.author_ids, papers.url, coalesce(papers.abstract, '') AS abstract, papers.pdf,
+           scores.score, scores.interests, scores.why, scores.wildcard
+         FROM scores JOIN papers ON papers.id = scores.paper_id JOIN scans ON scans.id = scores.scan_id
+         WHERE ${where}
+         ORDER BY papers.id`,
+      )
+      .all(...params)
+      .map(({ id, authors, author_ids, pdf, score, interests, why, wildcard, ...rest }) => ({
+        candidate: { ...rest, ids: idsOf.all(id).map((row) => row.id), ...optional(authors, author_ids, pdf) },
+        ranking: { score, interests: JSON.parse(interests) as string[], why, wildcard: wildcard === 1 },
+      }));
+
   const saveRankings = db.transaction((scanId: number, ranked: { candidate: Candidate; ranking: Ranking }[], at: string) => {
     for (const { candidate, ranking } of ranked) {
-      const paper = insertPaper.get(candidate.title, candidate.url, authorsJson(candidate), candidate.abstract, candidate.pdf ?? null, candidate.source, at);
+      const paper = insertPaper.get(candidate.title, candidate.url, authorsJson(candidate), authorIdsJson(candidate), candidate.abstract, candidate.pdf ?? null, candidate.source, at);
       if (paper === null) throw new PaperBotError(`could not store "${candidate.title}"`);
       for (const id of candidate.ids) insertId.run(id, paper.id);
       insertScore.run(paper.id, scanId, ranking.score, JSON.stringify(ranking.interests), ranking.why, ranking.wildcard ? 1 : 0);
@@ -244,7 +274,18 @@ export function openStore(path: string, { existing = false } = {}): Store {
 
   const addPending = db.transaction((candidates: Candidate[], at: string) => {
     for (const candidate of candidates) {
-      upsertPending.run(primaryId(candidate), JSON.stringify(candidate.ids), candidate.source, candidate.title, authorsJson(candidate), candidate.url, candidate.abstract, candidate.pdf ?? null, at);
+      upsertPending.run(
+        primaryId(candidate),
+        JSON.stringify(candidate.ids),
+        candidate.source,
+        candidate.title,
+        authorsJson(candidate),
+        authorIdsJson(candidate),
+        candidate.url,
+        candidate.abstract,
+        candidate.pdf ?? null,
+        at,
+      );
     }
   });
 
@@ -260,7 +301,7 @@ export function openStore(path: string, { existing = false } = {}): Store {
     for (const pick of picks) {
       const paper = paperOf(pick.candidate);
       if (paper === undefined) throw new PaperBotError(`Pick "${pick.candidate.title}" was never ranked`);
-      insertPick.run(scanId, paper, pick.rank, pick.why, pick.summary);
+      insertPick.run(scanId, paper, pick.rank, pick.why, pick.summary, pick.groups === undefined ? null : JSON.stringify(pick.groups));
     }
   });
 
@@ -275,27 +316,23 @@ export function openStore(path: string, { existing = false } = {}): Store {
     },
     saveRankings: (scanId, ranked, at) => saveRankings(scanId, ranked, at.toISOString()),
     unsettledRankings: () =>
-      db
-        .query<CandidateRow & { id: number; score: number; interests: string; why: string; wildcard: number }, []>(
-          `SELECT papers.id, papers.source, papers.title, papers.authors, papers.url, coalesce(papers.abstract, '') AS abstract, papers.pdf,
-             scores.score, scores.interests, scores.why, scores.wildcard
-           FROM scores JOIN papers ON papers.id = scores.paper_id JOIN scans ON scans.id = scores.scan_id
-           WHERE scans.kind = 'daily'
-             AND scans.id > coalesce((SELECT max(id) FROM scans WHERE kind = 'daily' AND outcome IN ('written', 'skipped')), 0)
-           ORDER BY papers.id`,
-        )
-        .all()
-        .map(({ id, authors, pdf, score, interests, why, wildcard, ...rest }) => ({
-          candidate: { ...rest, ids: idsOf.all(id).map((row) => row.id), ...optional(authors, pdf) },
-          ranking: { score, interests: JSON.parse(interests) as string[], why, wildcard: wildcard === 1 },
-        })),
+      rankings(
+        `scans.kind = 'daily' AND scans.id > coalesce((SELECT max(id) FROM scans WHERE kind = 'daily' AND outcome IN ('written', 'skipped')), 0)`,
+      ),
+    unpickedRankings: (papers, since) =>
+      papers.length === 0
+        ? []
+        : rankings(`papers.id IN (${papers.map(() => "?").join(", ")}) AND papers.first_seen >= ? AND papers.id NOT IN (SELECT paper_id FROM picks)`, [
+            ...papers,
+            since.toISOString(),
+          ]),
     pending: () =>
       db
         .query<CandidateRow & { ids: string }, []>(
-          "SELECT ids, source, title, authors, url, abstract, pdf FROM pending ORDER BY rowid",
+          "SELECT ids, source, title, authors, author_ids, url, abstract, pdf FROM pending ORDER BY rowid",
         )
         .all()
-        .map(({ ids, authors, pdf, ...rest }) => ({ ...rest, ids: JSON.parse(ids) as string[], ...optional(authors, pdf) })),
+        .map(({ ids, authors, author_ids, pdf, ...rest }) => ({ ...rest, ids: JSON.parse(ids) as string[], ...optional(authors, author_ids, pdf) })),
     addPending: (candidates, at) => addPending(candidates, at.toISOString()),
     settleScan: (scanId, settlement, picks) => settleScan(scanId, settlement, picks),
     scans: () =>
@@ -324,8 +361,9 @@ export function openStore(path: string, { existing = false } = {}): Store {
         .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[] })),
     weekPicks: (from, to) =>
       db
-        .query<Omit<WeekPick, "interests" | "wildcard" | "kept"> & { interests: string; wildcard: number }, [string, string]>(
-          `SELECT ${primaryIdOf} AS paper, papers.title, papers.url, scans.date, scores.score, scores.interests, scores.wildcard, picks.why, picks.summary,
+        .query<Omit<WeekPick, "interests" | "wildcard" | "groups" | "kept"> & { interests: string; wildcard: number; groups: string | null }, [string, string]>(
+          `SELECT ${primaryIdOf} AS paper, papers.title, papers.url, scans.date, scores.score, scores.interests, scores.wildcard, picks.groups,
+             picks.why, picks.summary,
              scans.briefing, keeps.at AS keptAt
            FROM picks JOIN scans ON scans.id = picks.scan_id JOIN papers ON papers.id = picks.paper_id JOIN scores ON scores.paper_id = picks.paper_id
              LEFT JOIN keeps ON keeps.paper_id = picks.paper_id AND keeps.dump IS NOT NULL
@@ -333,7 +371,13 @@ export function openStore(path: string, { existing = false } = {}): Store {
            ORDER BY scans.date, scans.id, picks.rank`,
         )
         .all(from, to)
-        .map((row) => ({ ...row, interests: JSON.parse(row.interests) as string[], wildcard: row.wildcard === 1, kept: row.keptAt !== null })),
+        .map((row) => ({
+          ...row,
+          interests: JSON.parse(row.interests) as string[],
+          wildcard: row.wildcard === 1,
+          groups: parseList(row.groups) ?? [],
+          kept: row.keptAt !== null,
+        })),
     writtenBriefings: ({ kind, from, to }) =>
       db
         .query<{ briefing: string }, [string, string | null, string | null]>(
@@ -395,16 +439,24 @@ export function openStore(path: string, { existing = false } = {}): Store {
   };
 }
 
-/** A Candidate as `papers` and `pending` store it: `authors` as JSON. */
-type CandidateRow = Pick<Candidate, "source" | "title" | "url" | "abstract"> & { authors: string | null; pdf: string | null };
+/** A Candidate as `papers` and `pending` store it: `authors` and `author_ids` as JSON. */
+type CandidateRow = Pick<Candidate, "source" | "title" | "url" | "abstract"> & { authors: string | null; author_ids: string | null; pdf: string | null };
 
 const authorsJson = (candidate: Candidate): string | null => (candidate.authors === undefined ? null : JSON.stringify(candidate.authors));
+
+const authorIdsJson = (candidate: Candidate): string | null => (candidate.authorIds === undefined ? null : JSON.stringify(candidate.authorIds));
+
+const parseList = (json: string | null): string[] | undefined => (json === null ? undefined : (JSON.parse(json) as string[]));
 
 const parseSources = (sources: string | null): SourceResults | null => (sources === null ? null : (JSON.parse(sources) as SourceResults));
 
 /** A stored Candidate's optional fields, left out when the store holds null. */
-function optional(authors: string | null, pdf: string | null): Pick<Candidate, "authors" | "pdf"> {
-  return { ...(authors !== null && { authors: JSON.parse(authors) as string[] }), ...(pdf !== null && { pdf }) };
+function optional(authors: string | null, authorIds: string | null, pdf: string | null): Pick<Candidate, "authors" | "authorIds" | "pdf"> {
+  return {
+    ...(authors !== null && { authors: JSON.parse(authors) as string[] }),
+    ...(authorIds !== null && { authorIds: JSON.parse(authorIds) as string[] }),
+    ...(pdf !== null && { pdf }),
+  };
 }
 
 function openWritable(path: string): Database {

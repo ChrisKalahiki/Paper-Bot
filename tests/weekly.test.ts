@@ -2,11 +2,25 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { lastWeek } from "../src/clock.ts";
 import type { Fetch } from "../src/http.ts";
+import { INTERESTS_NOTE } from "../src/interests.ts";
 import { dailyScan } from "../src/scan.ts";
 import { scheduledScans } from "../src/schedule.ts";
 import { openStore } from "../src/store.ts";
 import { weeklyScan } from "../src/weekly.ts";
-import { arxivApiOf, arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, MONDAY, sourcesFetch, tempDir, testConfig } from "./harness.ts";
+import {
+  ARXIV_FEED,
+  arxivApiOf,
+  arxivFeedOf,
+  arxivFetch,
+  type FakeCommands,
+  fakeCommands,
+  fakeSleep,
+  INTERESTS,
+  MONDAY,
+  sourcesFetch,
+  tempDir,
+  testConfig,
+} from "./harness.ts";
 
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
 const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
@@ -398,5 +412,91 @@ describe("a Weekly Briefing's week", () => {
 
     // #then
     expect(commands.vault.get(WEEKLY)?.match(/\^pick-\S+$/gm)).toEqual(["^pick-2610-30001", "^pick-2610-30002"]);
+  });
+});
+
+describe("a Weekly Briefing with Followed Groups", () => {
+  const GROUP_PAPER = "doi:10.1145/3772318.3790001";
+  const groupWork = {
+    id: "https://openalex.org/W4416000001",
+    doi: "https://doi.org/10.1145/3772318.3790001",
+    title: "Students Steering LLM Tutors: A Field Study",
+    abstract_inverted_index: { Students: [0] },
+    authorships: [{ author: { id: "https://openalex.org/A5087654321" } }],
+  };
+
+  /** A Daily Briefing on Tue 20 Oct with two ranked Picks and one Followed Group's Pick that scored 3, ranked as given. */
+  async function weekFollowing(box: Sandbox, ranking: { score: number; interests?: string[]; wildcard?: boolean } = { score: 3, interests: context }): Promise<FakeCommands> {
+    const commands = fakeCommands({
+      rankings: { ...RANKINGS, [GROUP_PAPER]: ranking },
+      notes: { [INTERESTS_NOTE]: `${INTERESTS}\n## Followed Groups\n- Koedinger lab: Vincent Aleven (A5087654321)\n` },
+    });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [groupWork] }) });
+    await daily(box, commands, new Date("2026-10-20T12:00:00Z"), fetch);
+    return commands;
+  }
+
+  test("lists a Followed Group's Picks in their own section, not among the Top Picks, and counts them per Interest", async () => {
+    // #given
+    const box = sandbox();
+    const commands = await weekFollowing(box);
+
+    // #when
+    await scheduled(box, commands, MONDAY);
+
+    // #then
+    const weekly = commands.vault.get(WEEKLY) ?? "";
+    expect({
+      table: weekly.match(/^\| Context.*$/gm),
+      top: weekly.slice(weekly.indexOf("## Top Picks"), weekly.indexOf("## From Followed Groups")).match(/\^(\S+)$/gm),
+      followed: weekly.slice(weekly.indexOf("## From Followed Groups"), weekly.indexOf("## Daily Briefings")),
+    }).toEqual({
+      table: ["| Context management in AI | 3 | 0 |"],
+      top: ["^pick-2610-31679", "^pick-2610-32109"],
+      followed: `## From Followed Groups
+
+- [ ] Keep [Students Steering LLM Tutors: A Field Study](https://doi.org/10.1145/3772318.3790001) · **Koedinger lab** · from [[2026-10-20 Daily Briefing]] ^pick-10-1145-3772318-3790001
+
+`,
+    });
+  });
+
+  test("never counts a Followed Group's Pick as a Wildcard, though the ranker flagged it one", async () => {
+    // #given
+    const box = sandbox();
+    const commands = await weekFollowing(box, { score: 8, wildcard: true });
+
+    // #when
+    await scheduled(box, commands, MONDAY);
+
+    // #then
+    expect(commands.vault.get(WEEKLY)).not.toContain("| Wildcards |");
+  });
+
+  test("sends a ticked Followed Group's Pick to the Inbox like any other Pick", async () => {
+    // #given
+    const box = sandbox();
+    const commands = await weekFollowing(box);
+    commands.vault.set(DAILY_20, (commands.vault.get(DAILY_20) ?? "").replace("- [ ] Keep ^pick-10-1145-3772318-3790001", "- [x] Keep ^pick-10-1145-3772318-3790001"));
+
+    // #when
+    await scheduled(box, commands, MONDAY);
+
+    // #then
+    expect(commands.calls.filter(({ argv }) => argv[1] === "write-dump").map(({ argv }) => argv[argv.indexOf("--paper") + 1])).toEqual([GROUP_PAPER]);
+  });
+
+  test("tells the writer which of the week's Picks a Followed Group wrote", async () => {
+    // #given
+    const box = sandbox();
+    const commands = await weekFollowing(box);
+    const before = claudeCalls(commands).length;
+
+    // #when
+    await scheduled(box, commands, MONDAY);
+
+    // #then
+    const [call] = claudeCalls(commands).slice(before);
+    expect(call?.stdin).toContain(`id: ${GROUP_PAPER}\ntitle: Students Steering LLM Tutors: A Field Study\nfollowed group: Koedinger lab\n`);
   });
 });

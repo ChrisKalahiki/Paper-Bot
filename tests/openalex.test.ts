@@ -107,6 +107,36 @@ describe("the OpenAlex source", () => {
     });
   });
 
+  test("asks for the 14-day publication window's works by the Followed Groups' members", async () => {
+    // #given
+    const { fetch, requested } = recording(() => EMPTY);
+
+    // #when
+    await fetchOpenAlexCandidates(fetch, { key: "KEY", venues: [], authorIds: ["A5012345678", "A5087654321"] }, MONDAY);
+
+    // #then
+    expect(requested.map((url) => url.searchParams.get("filter"))).toEqual([
+      "primary_topic.subfield.id:3304|1709,from_publication_date:2026-10-12,to_publication_date:2026-10-26",
+      "authorships.author.id:A5012345678|A5087654321,from_publication_date:2026-10-12,to_publication_date:2026-10-26",
+    ]);
+  });
+
+  test("gives a work the OpenAlex ids of its authors", async () => {
+    // #given
+    const work = {
+      id: "https://openalex.org/W1",
+      title: "Tutors",
+      authorships: [{ author: { id: "https://openalex.org/A5012345678" } }, { author: { id: "https://openalex.org/A5087654321" } }, { author: {} }],
+    };
+    const { fetch } = recording(() => JSON.stringify({ meta: { next_cursor: null }, results: [work] }));
+
+    // #when
+    const [candidate] = await fetchOpenAlexCandidates(fetch, { key: "KEY", venues: [] }, MONDAY);
+
+    // #then
+    expect(candidate?.authorIds).toEqual(["A5012345678", "A5087654321"]);
+  });
+
   test("an error status from OpenAlex fails the fetch, naming it", async () => {
     // #given
     const fetch = async () => new Response("Plan upgrade required", { status: 429 });

@@ -147,6 +147,7 @@ describe("Interests Note issues", () => {
         { name: "HCI", description: "How people use AI.", venues: [], avoid: [] },
       ],
       wildcards: { cap: 0, hint: "" },
+      followedGroups: [],
       issues: ['unreadable bullet under Agents: "- Priority: high"', 'unreadable bullet under Agents: "- just a thought"', 'unreadable bullet under Agents: "- Avoid:"'],
     });
   });
@@ -160,5 +161,84 @@ describe("Interests Note issues", () => {
 
     // #then
     expect({ venues: interests[0]?.venues, issues }).toEqual({ venues: ["CHI", "Ubicomp"], issues: ['unknown Venue under HCI: "Ubicomp"'] });
+  });
+});
+
+describe("Followed Groups", () => {
+  test("reads each group's name and members, each member with one or more OpenAlex author ids", () => {
+    // #given
+    const note = `## HCI
+How people use AI.
+
+## Followed Groups
+- Koedinger lab: Kenneth Koedinger (A5012345678); Vincent Aleven (A5087654321, a5011111111)
+- DeepMind agents: Jane Doe (A5022222222)
+`;
+
+    // #when
+    const { interests, followedGroups, issues } = parseInterestsNote(note, []);
+
+    // #then
+    expect({ interests: interests.map((interest) => interest.name), followedGroups, issues }).toEqual({
+      interests: ["HCI"],
+      followedGroups: [
+        {
+          name: "Koedinger lab",
+          members: [
+            { name: "Kenneth Koedinger", ids: ["A5012345678"] },
+            { name: "Vincent Aleven", ids: ["A5087654321", "A5011111111"] },
+          ],
+        },
+        { name: "DeepMind agents", members: [{ name: "Jane Doe", ids: ["A5022222222"] }] },
+      ],
+      issues: [],
+    });
+  });
+
+  test("an unreadable group or a malformed author id is an issue, and the group's readable members are still followed", () => {
+    // #given
+    const note = `## HCI
+How people use AI.
+
+## Followed Groups
+- Koedinger lab: Kenneth Koedinger (A5012345678); Vincent Aleven (W123)
+- Jane Doe
+- Empty lab:
+`;
+
+    // #when
+    const { followedGroups, issues } = parseInterestsNote(note, []);
+
+    // #then
+    expect({ followedGroups, issues }).toEqual({
+      followedGroups: [{ name: "Koedinger lab", members: [{ name: "Kenneth Koedinger", ids: ["A5012345678"] }] }],
+      issues: [
+        'unreadable member of Koedinger lab: "Vincent Aleven (W123)"',
+        'unreadable Followed Group: "- Jane Doe"',
+        'unreadable Followed Group: "- Empty lab:"',
+      ],
+    });
+  });
+
+  test("a group whose every member is unreadable is reported once per member, not again as a group", () => {
+    // #given
+    const note = "## HCI\nHow people use AI.\n\n## Followed Groups\n- Koedinger lab: Vincent Aleven (W123)\n";
+
+    // #when
+    const { followedGroups, issues } = parseInterestsNote(note, []);
+
+    // #then
+    expect({ followedGroups, issues }).toEqual({ followedGroups: [], issues: ['unreadable member of Koedinger lab: "Vincent Aleven (W123)"'] });
+  });
+
+  test("a note with no Followed Groups section follows none", () => {
+    // #given
+    const note = "## HCI\nHow people use AI.\n";
+
+    // #when
+    const { followedGroups } = parseInterestsNote(note, []);
+
+    // #then
+    expect(followedGroups).toEqual([]);
   });
 });

@@ -9,12 +9,13 @@ export function dailyBriefingPath(at: Date): string {
   return `Research/Briefings/Daily/${localDate(at)} Daily Briefing.md`;
 }
 
-export type RenderedPick = { candidate: Candidate; interests: string[]; wildcard: boolean; why: string; summary: string; fromAbstract: boolean };
+/** `groups` names the Followed Groups a Pick was chosen for, empty for a ranked Pick. */
+export type RenderedPick = { candidate: Candidate; interests: string[]; wildcard: boolean; groups: string[]; why: string; summary: string; fromAbstract: boolean };
 
 export type DailyBriefing = {
   at: Date;
   take: string;
-  /** Best first. */
+  /** The ranked Picks best first, then the Followed Groups' Picks best first. */
   picks: RenderedPick[];
   /** The best Candidates after the Picks, best first. */
   alsoConsidered: Candidate[];
@@ -40,17 +41,25 @@ export function blockIdOf(paper: string): string {
 }
 
 /**
- * Variant B, a ranked list: the take, then each Pick with its Interests, why, summary and Keep box, then a collapsed
- * Also considered list, then the footer.
+ * Variant B, a ranked list: the take, then each ranked Pick with its Interests, why, summary and Keep box, then the
+ * Followed Groups' Picks tagged with their groups, then a collapsed Also considered list, then the footer.
  */
 export function renderDailyBriefing(briefing: DailyBriefing): string {
-  const picks = briefing.picks.map(
-    ({ candidate, interests, wildcard, why, summary, fromAbstract }, i) =>
-      `${i + 1}. **[${linkText(candidate.title)}](${candidate.url})** · *${wildcard ? "Wildcard" : interests.join(" · ")}*
-   **Why it's here:** ${why}
-   ${summary}${fromAbstract ? " *(from abstract)*" : ""}
-   - [ ] Keep ^${pickBlockId(candidate)}`,
-  );
+  const ranked = briefing.picks.filter((pick) => pick.groups.length === 0);
+  const followed = briefing.picks.filter((pick) => pick.groups.length > 0);
+  const tags = ({ interests, wildcard, groups }: RenderedPick): string =>
+    [...groups.map((group) => `**${group}**`), ...(wildcard && groups.length === 0 ? ["*Wildcard*"] : interests.length > 0 ? [`*${interests.join(" · ")}*`] : [])].join(" · ");
+  const list = (picks: RenderedPick[]) =>
+    picks.map(
+      (pick, i) =>
+        `${i + 1}. **[${linkText(pick.candidate.title)}](${pick.candidate.url})** · ${tags(pick)}
+   **Why it's here:** ${pick.why}
+   ${pick.summary}${pick.fromAbstract ? ` *(from ${pick.candidate.abstract === "" ? "title" : "abstract"})*` : ""}
+   - [ ] Keep ^${pickBlockId(pick.candidate)}`,
+    );
+  const picks = [...list(ranked), ...(followed.length > 0 ? [`\n## From Followed Groups\n\n${list(followed).join("\n")}`] : [])];
+  const groupCounts = new Map<string, number>();
+  for (const group of followed.flatMap((pick) => pick.groups)) groupCounts.set(group, (groupCounts.get(group) ?? 0) + 1);
   const alsoConsidered = briefing.alsoConsidered.map(
     (candidate) => `- [${linkText(candidate.title)}](${candidate.url})${candidate.abstract === "" ? " · *no abstract*" : ""}`,
   );
@@ -58,6 +67,7 @@ export function renderDailyBriefing(briefing: DailyBriefing): string {
   const total = counts.reduce((sum, [, count]) => sum + count, 0);
   const footer = [
     [`${total} candidates`, ...counts.map(([source, count]) => `${SOURCE_LABELS[source]} ${count}`)].join(" · "),
+    ...(groupCounts.size > 0 ? [`Followed Groups: ${[...groupCounts].map(([group, count]) => `${group} ${count}`).join(" · ")}`] : []),
     ...(Object.entries(briefing.failedSources) as [SourceName, string][]).map(([source, error]) => `${SOURCE_LABELS[source]} failed: ${error}`),
     ...briefing.rankingFailures,
     ...(briefing.issues.length > 0 ? [`Interests Note issues: ${briefing.issues.join("; ")}`] : []),
@@ -98,19 +108,23 @@ export type WeeklyBriefing = {
 
 /**
  * Variant W1, themes first, with W2's per-Interest table: the themes and quiet Interests, Picks and Keeps per Interest,
- * the best Picks not yet Kept with Keep boxes, the Picks already Kept, then links to the week's Daily Briefings.
+ * the best ranked Picks not yet Kept with Keep boxes, the Followed Groups' Picks not yet Kept with Keep boxes, the Picks
+ * already Kept, then links to the week's Daily Briefings.
  */
 export function renderWeeklyBriefing({ week, themes, interests, picks, dailies }: WeeklyBriefing): string {
   const ofInterest = (name: string) => picks.filter((pick) => pick.interests.includes(name));
-  const wildcards = picks.filter((pick) => pick.wildcard && pick.interests.length === 0);
+  const wildcards = picks.filter((pick) => pick.wildcard && pick.interests.length === 0 && pick.groups.length === 0);
   const quiet = interests.filter((name) => ofInterest(name).length === 0);
   const rows: [string, WeekPick[]][] = interests.map((name) => [name, ofInterest(name)]);
   if (wildcards.length > 0) rows.push([WILDCARDS_HEADING, wildcards]);
+  const keepLine = (pick: WeekPick) =>
+    `- [ ] Keep [${linkText(pick.title)}](${pick.url}) · ${pick.groups.map((group) => `**${group}** · `).join("")}from ${noteLink(pick.briefing)} ^${blockIdOf(pick.paper)}`;
   const top = picks
-    .filter((pick) => !pick.kept)
+    .filter((pick) => !pick.kept && pick.groups.length === 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, TOP_PICKS)
-    .map((pick) => `- [ ] Keep [${linkText(pick.title)}](${pick.url}) · from ${noteLink(pick.briefing)} ^${blockIdOf(pick.paper)}`);
+    .map(keepLine);
+  const followed = picks.filter((pick) => !pick.kept && pick.groups.length > 0).map(keepLine);
   const kept = picks.filter((pick) => pick.kept).map((pick) => `- [${linkText(pick.title)}](${pick.url}) → in the Inbox`);
   const paragraphs = [
     ...themes.map(({ headline, body }) => `**${headline}** ${body}`),
@@ -125,6 +139,7 @@ ${paragraphs.join("\n\n")}
 | --- | --- | --- |
 ${rows.map(([name, ofRow]) => `| ${name} | ${ofRow.length} | ${ofRow.filter((pick) => pick.kept).length} |`).join("\n")}`,
     ...(top.length > 0 ? [`## Top Picks\n\n${top.join("\n")}`] : []),
+    ...(followed.length > 0 ? [`## From Followed Groups\n\n${followed.join("\n")}`] : []),
     ...(kept.length > 0 ? [`## Already kept this week\n\n${kept.join("\n")}`] : []),
     `## Daily Briefings\n\n${dailies.map(noteLink).join(" · ")}`,
   ];

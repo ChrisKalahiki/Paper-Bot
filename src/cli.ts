@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { lastWeek, systemClock } from "./clock.ts";
+import { findAuthors } from "./author.ts";
 import { spawnExec } from "./command.ts";
 import { loadConfig, paths } from "./config.ts";
 import { PaperBotError, UsageError } from "./errors.ts";
@@ -13,7 +14,7 @@ import { type SettledScan, scheduledScans } from "./schedule.ts";
 import { openStore } from "./store.ts";
 import { weeklyScan } from "./weekly.ts";
 
-const USAGE = "usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json";
+const USAGE = 'usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n       paper-bot author "<name>"';
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -28,6 +29,12 @@ async function main(argv: string[]): Promise<number> {
     case "picks": {
       if (!parseOptions(rest, { json: { type: "boolean" } }).json) throw new UsageError(USAGE);
       return picks();
+    }
+    case "author": {
+      const name = rest.join(" ").trim();
+      if (name === "") throw new UsageError(USAGE);
+      process.stdout.write(await findAuthors(httpFetch, name, loadConfig(paths(process.env).config).openalex.key));
+      return 0;
     }
     default:
       throw new UsageError(USAGE);

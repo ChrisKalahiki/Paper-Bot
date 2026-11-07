@@ -28,3 +28,6 @@ New model families and modalities: vision-language, audio and video models, worl
 
 ## Wildcards
 Up to 1 per Daily Briefing. Anything a researcher in AI, education and HCI would find surprising or methodologically useful.
+
+## Followed Groups
+Groups of researchers whose every new Paper is a Pick. One group per bullet: its name, a colon, then its members separated by semicolons, each a name with their OpenAlex author ids in parentheses. Find the ids with `paper-bot author "<name>"`.

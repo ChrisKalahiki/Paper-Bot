@@ -1408,3 +1408,172 @@ describe("a Daily Scan keeping the store and logs small", () => {
     expect(readdirSync(logDir).sort()).toEqual(["2026-07-28-daily.log", "2026-10-26-daily.log", "notes.txt"]);
   });
 });
+
+describe("a Daily Scan with Followed Groups", () => {
+  const FOLLOWING = `${INTERESTS}
+## Followed Groups
+- Koedinger lab: Kenneth Koedinger (A5012345678); Vincent Aleven (A5087654321)
+`;
+  const GROUP_PAPER = "doi:10.1145/3772318.3790001";
+  const groupWork = (extra: object = {}) => ({
+    id: "https://openalex.org/W4416000001",
+    doi: "https://doi.org/10.1145/3772318.3790001",
+    title: "Students Steering LLM Tutors: A Field Study",
+    abstract_inverted_index: { Students: [0], steer: [1] },
+    authorships: [{ author: { id: "https://openalex.org/A5099999999" } }, { author: { id: "https://openalex.org/A5087654321" } }],
+    ...extra,
+  });
+  const serving = (...works: object[]) =>
+    sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+  const following = (rankings: Record<string, { score: number; interests?: string[] }> = PICKED) =>
+    fakeCommands({ rankings, notes: { [INTERESTS_NOTE]: FOLLOWING } });
+
+  test("writes a Followed Group's Paper under From Followed Groups, whatever its score, after the ranked Picks", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({ ...PICKED, [GROUP_PAPER]: { score: 2, interests: ["AI in higher education"] } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 3
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring](https://arxiv.org/abs/2610.31679)** · *AI in higher education · Context management in AI*
+   **Why it's here:** Why arxiv:2610.31679.
+   What arxiv:2610.31679 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-31679
+2. **[Context or Knowledge: How LLMs Attribute Their Own Answers](https://arxiv.org/abs/2610.32109)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.32109.
+   What arxiv:2610.32109 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-32109
+
+## From Followed Groups
+
+1. **[Students Steering LLM Tutors: A Field Study](https://doi.org/10.1145/3772318.3790001)** · **Koedinger lab** · *AI in higher education*
+   **Why it's here:** Why doi:10.1145/3772318.3790001.
+   What doi:10.1145/3772318.3790001 found. *(from abstract)*
+   - [ ] Keep ^pick-10-1145-3772318-3790001
+
+3 candidates · arXiv 2 · OpenAlex 1
+
+Followed Groups: Koedinger lab 1
+`);
+  });
+
+  test("records a Followed Group's Pick after the ranked Picks, naming its groups", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({ ...PICKED, [GROUP_PAPER]: { score: 2 } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(stored(storePath).picks.map(({ paper, rank }) => ({ paper, rank }))).toEqual([
+      { paper: "arxiv:2610.31679", rank: 1 },
+      { paper: "arxiv:2610.32109", rank: 2 },
+      { paper: GROUP_PAPER, rank: 3 },
+    ]);
+  });
+
+  test("asks OpenAlex for the works of every Followed Group member", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const fetch = serving();
+
+    // #when
+    await scan({ commands: following(), storePath, logDir, fetch });
+
+    // #then
+    expect(fetch.urls.map((url) => new URL(url).searchParams.get("filter")).filter((filter) => filter?.startsWith("authorships"))).toEqual([
+      "authorships.author.id:A5012345678|A5087654321,from_publication_date:2026-10-12,to_publication_date:2026-10-26",
+    ]);
+  });
+
+  test("writes a Daily Briefing whose only Picks are from Followed Groups", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+
+    // #when
+    const result = await scan({ commands: following({}), storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(result).toEqual({ outcome: "written", briefing: BRIEFING });
+  });
+
+  test("Picks a Followed Group's Paper with no abstract, written from its title when it has no full text", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({});
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork({ abstract_inverted_index: null })) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toContain(`What ${GROUP_PAPER} found. *(from title)*`);
+  });
+
+  test("tells the writer which Picks a Followed Group wrote", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({});
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    const prompt = commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+    expect(prompt).toContain(`id: ${GROUP_PAPER}\ntitle: Students Steering LLM Tutors: A Field Study\nfollowed group: Koedinger lab\n`);
+  });
+
+  describe("when OpenAlex shows a Followed Group wrote a Paper an earlier Scan ranked", () => {
+    const PREPRINT = "arxiv:2610.32109";
+    const ofPreprint = groupWork({ doi: null, locations: [{ landing_page_url: "https://arxiv.org/abs/2610.32109" }] });
+
+    test("Picks it as a Late Pick when it was never Picked", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following({}), storePath, logDir });
+      const commands = following({});
+
+      // #when
+      await scan({ commands, storePath, logDir, at: TUESDAY, fetch: serving(ofPreprint) });
+
+      // #then
+      expect(stored(storePath).picks.map(({ scanId, paper }) => ({ scanId, paper }))).toEqual([{ scanId: 2, paper: PREPRINT }]);
+    });
+
+    test("never Picks it again when it was already Picked", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following(), storePath, logDir });
+
+      // #when
+      const result = await scan({ commands: following({}), storePath, logDir, at: TUESDAY, fetch: serving(ofPreprint) });
+
+      // #then
+      expect(result).toEqual({ outcome: "skipped", reason: "no new Candidates" });
+    });
+
+    test("does not Pick it when it was first seen over 14 days ago", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following({}), storePath, logDir });
+
+      // #when
+      const result = await scan({ commands: following({}), storePath, logDir, at: new Date("2026-11-10T12:00:00Z"), fetch: serving(ofPreprint) });
+
+      // #then
+      expect(result.outcome).toBe("skipped");
+    });
+  });
+});

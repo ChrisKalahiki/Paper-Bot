@@ -8,6 +8,7 @@ import { tempDir, testConfig } from "./harness.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const CLI = join(ROOT, "src", "cli.ts");
+const USAGE = 'paper-bot: usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n       paper-bot author "<name>"\n';
 
 type Home = { home: string; configPath: string; storePath: string };
 
@@ -109,7 +110,7 @@ describe("paper-bot scan --daily", () => {
     const result = paperBot(sandbox, ["sweep"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n" });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: USAGE });
   });
 
   test("--daily and --weekly together is a usage error", () => {
@@ -120,7 +121,7 @@ describe("paper-bot scan --daily", () => {
     const result = paperBot(sandbox, ["scan", "--daily", "--weekly"]);
 
     // #then
-    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: "paper-bot: usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n" });
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: USAGE });
   });
 });
 
@@ -226,5 +227,18 @@ describe("config.example.json", () => {
 
     // #then
     expect(parsing).toThrow("openalex.key must be a non-empty string");
+  });
+});
+
+describe("paper-bot author", () => {
+  test("with no name is a usage error", () => {
+    // #given
+    const sandbox = home();
+
+    // #when
+    const result = paperBot(sandbox, ["author"]);
+
+    // #then
+    expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 2, stderr: USAGE });
   });
 });

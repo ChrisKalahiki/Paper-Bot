@@ -45,7 +45,8 @@ ${candidates}
 `;
 }
 
-export type PickInput = { candidate: Candidate; ranking: Ranking };
+/** `groups` names the Followed Groups whose member wrote it, when it is Picked for them rather than by ranking. */
+export type PickInput = { candidate: Candidate; ranking: Ranking; groups?: string[] };
 
 /** A Pick as the writer gets it: `fullText` is undefined when the Pick is written from its abstract. */
 export type PickToWrite = PickInput & { fullText: string | undefined };
@@ -74,17 +75,20 @@ Use only what is given above. Write no Todos or Decisions.
 export function dailyPrompt(picks: PickToWrite[], interests: Interest[], at: Date): string {
   const listed = picks
     .map(
-      ({ candidate, ranking, fullText }) =>
-        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\ninterests: ${ranking.interests.join(", ") || (ranking.wildcard ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract}\nfull text: ${fullText ?? "none; write from the abstract"}`,
+      ({ candidate, ranking, groups, fullText }) =>
+        `id: ${primaryId(candidate)}\ntitle: ${candidate.title}\n${groups?.length ? `followed group: ${groups.join(", ")}\n` : ""}interests: ${ranking.interests.join(", ") || (ranking.wildcard && !groups?.length ? "none, a Wildcard" : "none")}\nranking note: ${ranking.why}\nabstract: ${candidate.abstract || "none"}\nfull text: ${fullText ?? (candidate.abstract ? "none; write from the abstract" : "none; write from the title alone, saying only what it states")}`,
     )
     .join("\n\n");
+  const followed = picks.some(({ groups }) => groups?.length)
+    ? "\n\nA Pick with a followed group is here because Chris follows a group of researchers who wrote it, whatever its ranking; its why line says whether it bears on his Interests."
+    : "";
   return `You write the prose of Chris's Daily Briefing for ${longDate(at)}. Code lays out the note; you return only the prose, as JSON.
 
 His Interests: ${interests.map((interest) => interest.name).join("; ")}.
 
-Today's Picks, best first:
+Today's Picks, the ranked ones best first, then those from Followed Groups:
 
-${listed}
+${listed}${followed}
 
 Return:
 - take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them;
@@ -97,8 +101,8 @@ Use only what is given above. Include no URLs, and name no Paper that is not lis
 export function weeklyPrompt(week: IsoWeek, picks: WeekPick[], interests: string[]): string {
   const listed = picks
     .map(
-      ({ paper, title, interests, wildcard, why, summary }) =>
-        `id: ${paper}\ntitle: ${title}\ninterests: ${interests.join(", ") || (wildcard ? "none, a Wildcard" : "none")}\nwhy it was Picked: ${why}\nsummary: ${summary}`,
+      ({ paper, title, interests, wildcard, groups, why, summary }) =>
+        `id: ${paper}\ntitle: ${title}\n${groups.length > 0 ? `followed group: ${groups.join(", ")}\n` : ""}interests: ${interests.join(", ") || (wildcard && groups.length === 0 ? "none, a Wildcard" : "none")}\nwhy it was Picked: ${why}\nsummary: ${summary}`,
     )
     .join("\n\n");
   return `You write the themes of Chris's Weekly Briefing for ${week.name}, ${longDate(week.monday)} to ${longDate(week.sunday)}. Code lays out the note; you return only the themes, as JSON.
@@ -107,7 +111,7 @@ His Interests: ${interests.join("; ")}.
 
 This week's Picks, in the order they appeared:
 
-${listed}
+${listed}${picks.some(({ groups }) => groups.length > 0) ? "\n\nA Pick with a followed group was Picked because Chris follows a group of researchers who wrote it, whatever its ranking." : ""}
 
 Return:
 - themes: two to four threads running through this week's Picks, or just one when the week is too thin for more, each a headline of one short sentence and a body of at most 50 words that names the Picks it draws on by title and the Interests they bear on.

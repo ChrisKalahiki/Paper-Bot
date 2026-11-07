@@ -11,7 +11,7 @@ import { openStore } from "../src/store.ts";
 import { arxivFeedOf, arxivFetch, type FakeCommands, fakeCommands, fakeSleep, INTERESTS, MONDAY, sourcesFetch, tempDir, testConfig } from "./harness.ts";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
-const USAGE = "usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json";
+const USAGE = 'usage: paper-bot scan [--daily | --weekly]\n       paper-bot picks --json\n       paper-bot author "<name>"';
 const TUESDAY = new Date("2026-10-27T12:00:00Z");
 const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
 const NEXT_MONDAY = new Date("2026-11-02T12:00:00Z");
@@ -301,6 +301,8 @@ describe("the paper-bot picks command", () => {
     await daily(box, fakeCommands({ rankings: RANKINGS }), MONDAY);
     const db = new Database(box.storePath);
     db.run("DROP TABLE lab_posts");
+    for (const table of ["papers", "pending"]) db.run(`ALTER TABLE ${table} DROP COLUMN author_ids`);
+    db.run("ALTER TABLE picks DROP COLUMN groups");
     db.run("PRAGMA user_version = 3");
     db.close();
 
