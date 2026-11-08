@@ -34,8 +34,8 @@ export type Eval = EvalInputs & { name: string; cases: EvalCase[] };
 /** One fixture: each run calls the real prompt once. A case's runs go in parallel. */
 export type EvalCase = { name: string; run: () => Promise<CaseResult> };
 
-/** `failures` gate; `grade` is advisory and absent when there was nothing to grade. */
-export type CaseResult = { failures: string[]; grade?: Grade };
+/** `failures` gate; `grade` is advisory and absent when there was nothing to grade; `reply` is the model's, printed when the case fails. */
+export type CaseResult = { failures: string[]; grade?: Grade; reply?: unknown };
 
 export type PassRecord = { hash: string; date: string; model: string };
 

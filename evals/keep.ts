@@ -63,7 +63,7 @@ async function runCase(ask: Ask, check: DumpCheck, { briefing, pick }: KeepFixtu
   if ("error" in answer) return { failures: [answer.error] };
   const { reply } = answer;
   const failures = checkKeep(reply, prompt);
-  if (failures.length > 0) return { failures };
+  if (failures.length > 0) return { failures, reply };
   const dump = keptDump(pick, briefing, reply as KeepDraft);
-  return { failures: await check(dump), grade: await grade(ask, RUBRIC, prompt, dump.body) };
+  return { failures: await check(dump), grade: await grade(ask, RUBRIC, prompt, dump.body), reply };
 }

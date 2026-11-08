@@ -40,7 +40,7 @@ async function runCase(ask: Ask, { week: dates, interests, dailies, picks }: Wee
     picks.map(({ title }) => title),
     prompt,
   );
-  if (failures.length > 0) return { failures };
+  if (failures.length > 0) return { failures, reply };
   const { themes } = reply as { themes: Theme[] };
   const markdown = renderWeeklyBriefing({ week, themes, interests, picks, dailies });
   return {
@@ -49,5 +49,6 @@ async function runCase(ask: Ask, { week: dates, interests, dailies, picks }: Wee
       picks.map(({ url }) => url),
     ),
     grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)),
+    reply,
   };
 }

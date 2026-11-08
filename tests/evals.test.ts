@@ -623,6 +623,19 @@ describe("the evals on their fixtures", () => {
     expect(failures).toEqual({ normal: ["doi:10.1145/3706598.3713012 has no entry"], thin: ["arxiv:2610.19702 has no entry"], "catch-up": ["arxiv:2610.21890 has no entry"] });
   });
 
+  test("a failing daily case carries the reply it failed on, for the eval to print", async () => {
+    // #given
+    const terse = { take: "Today.", picks: [{ id: "arxiv:2610.18211", why: "Why.", summary: "One. Two. Three." }] };
+    const answering: Ask = async (schema, prompt) => (schema === DAILY_SCHEMA ? terse : obedient(schema, prompt));
+
+    // #when
+    const [normal] = dailyEval(answering).cases;
+    const result = await normal?.run();
+
+    // #then
+    expect(result?.reply).toEqual(terse);
+  });
+
   test("an eval fails a case with claude's own error when the call fails", async () => {
     // #given
     const loggedOut: Ask = async () => {

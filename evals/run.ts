@@ -34,7 +34,10 @@ async function runEval(declared: Eval, runs: number): Promise<boolean> {
     const results = await Promise.all(Array.from({ length: runs }, () => evalCase.run()));
     passed &&= results.every(({ failures }) => failures.length === 0);
     console.log(`  ${evalCase.name}  ${results.map(({ failures }) => (failures.length === 0 ? "pass" : "FAIL")).join(" ")}`);
-    for (const [index, { failures }] of results.entries()) for (const failure of failures) console.log(`    run ${index + 1}: ${failure}`);
+    for (const [index, { failures, reply }] of results.entries()) {
+      for (const failure of failures) console.log(`    run ${index + 1}: ${failure}`);
+      if (failures.length > 0 && reply !== undefined) console.log(`    run ${index + 1} reply:\n${indented(JSON.stringify(reply, null, 2), "      ")}`);
+    }
     const rubric = describeGrades(results);
     if (rubric !== undefined) console.log(`    rubric (advisory): ${rubric}`);
   }
@@ -62,6 +65,8 @@ function describeGrades(results: CaseResult[]): string | undefined {
   const errors = grades.flatMap((grade) => ("error" in grade ? [`ungraded: ${grade.error}`] : []));
   return [...means, ...errors].join(" · ");
 }
+
+const indented = (text: string, prefix: string): string => text.replace(/^/gm, prefix);
 
 function fail(message: string): number {
   console.error(`eval: ${message}`);

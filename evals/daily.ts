@@ -50,5 +50,5 @@ async function runCase(ask: Ask, { at, coveredThrough, interests, picks }: Daily
   const { reply } = answer;
   const ids = picks.map(({ candidate }) => primaryId(candidate));
   const failures = checkDaily(reply, { ids, ...(covers === undefined ? {} : { covers }) }, prompt);
-  return { failures, grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)) };
+  return { failures, grade: await grade(ask, RUBRIC, prompt, JSON.stringify(reply, null, 2)), reply };
 }
