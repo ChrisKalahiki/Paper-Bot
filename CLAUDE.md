@@ -32,3 +32,17 @@ Always use `bun`, never `npm`.
 - Reach the Vault only through `brain-dump`. Never read or write Vault files directly.
 - Expected failures are `PaperBotError`: one line, no stack trace. A Scan fails only when it can't settle its Briefing.
 - Use the vocabulary in `GLOSSARY.md` (Paper, Interest, Candidate, Pick, Wildcard, Scan, Briefing, Keep) in code, prompts and docs, and none of its _Avoid_ words. A Scan is never a `run` and a Briefing never a `Digest`.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in `ChrisKalahiki/paper-bot`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
