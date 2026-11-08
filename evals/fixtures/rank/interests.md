@@ -4,7 +4,7 @@
 How AI, especially generative AI and LLM tutors, changes university teaching, learning and assessment: learning outcomes, student and instructor use, academic integrity, novice programmers, and course or institutional policy.
 
 - Venues: L@S, AIED, EDM, IJAIED, Computers & Education, Computers & Education: AI, IEEE TLT
-- Avoid: K-12-only studies; opinion pieces with no data
+- Avoid: K-12-only studies unless they provide strong empirical evidence about AI tutoring that could inform higher education; opinion pieces with no data
 
 ## Agents and LLMs
 How LLM agents plan, use tools and act over long tasks; agent frameworks, evaluation and benchmarks; multi-agent systems; reliability and failure analysis.
@@ -27,6 +27,7 @@ How agents and LLM apps choose, compress, retrieve and carry context across sess
 New model families and modalities: vision-language, audio and video models, world models, new architectures beyond the standard transformer, and notable frontier model reports.
 
 - Venues: NeurIPS, ICML, ICLR
+- Avoid: hardware-specific inference optimizations for existing models without a new model family or substantive capability finding
 
 ## Wildcards
 Up to 1 per Daily Briefing. Anything a researcher in AI, education and HCI would find surprising or methodologically useful.

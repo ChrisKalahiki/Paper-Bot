@@ -1,8 +1,8 @@
 {
   "candidates": [
     {
-      "label": "",
-      "edge": "a K-12-only study, which AI in higher education avoids",
+      "label": "must-pick",
+      "edge": "a K-12-only study with strong empirical evidence about AI tutoring that could inform higher education, an exception to the usual exclusion",
       "candidate": {
         "source": "eric",
         "ids": ["url:https://example.org/paper-bot-eval/k12-algebra-tutor"],
@@ -13,7 +13,7 @@
       }
     },
     {
-      "label": "",
+      "label": "must-not",
       "edge": "an opinion piece with no data, which AI in higher education avoids",
       "candidate": {
         "source": "openalex",
@@ -25,7 +25,7 @@
       }
     },
     {
-      "label": "",
+      "label": "don't-care",
       "edge": "a strong Paper outside every Interest, a likely Wildcard",
       "candidate": {
         "source": "arxiv",
@@ -37,7 +37,7 @@
       }
     },
     {
-      "label": "",
+      "label": "must-pick",
       "edge": "on the boundary between Agents and LLMs and Context management in AI",
       "candidate": {
         "source": "arxiv",
