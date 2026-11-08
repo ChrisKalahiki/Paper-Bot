@@ -55,6 +55,8 @@ Starting a Scan again is safe. `scan --daily` on a day whose Daily Briefing is w
 
 ## Setup
 
+`docs/drafts/Interests.md` is the starter Interests Note, refined from the reading priorities and research gaps in Chris's Learning to Vibe Code literature review. Ranking also carries that review's education and HCI reading priorities: verification by novices and domain experts, learning after AI support is removed, instructor co-design, and evidence connecting behavior to artifact quality. The remaining Interests stay independently eligible. Update `Research/Briefings/Interests.md` in the Vault when adopting the starter note; editing the draft alone does not change that Vault note.
+
 ```sh
 bun install
 mkdir -p ~/.config/paper-bot

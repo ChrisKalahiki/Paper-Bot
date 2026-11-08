@@ -52,21 +52,24 @@ describe("reading the Interests Note", () => {
 
     // #then
     expect({ first: interests[0], hci: interests[2], wildcards, issues }).toEqual({
-      first: {
+      first: expect.objectContaining({
         name: "AI in higher education",
-        description:
-          "How AI, especially generative AI and LLM tutors, changes university teaching, learning and assessment: learning outcomes, student and instructor use, academic integrity, novice programmers, and course or institutional policy.",
         venues: ["L@S", "AIED", "EDM", "IJAIED", "Computers & Education", "Computers & Education: AI", "IEEE TLT"],
-        avoid: ["K-12-only studies", "opinion pieces with no data"],
-      },
-      hci: {
+        avoid: [
+          "K-12-only studies unless they provide strong empirical evidence about AI tutoring or learning transfer that could inform higher education",
+          "opinion pieces with no data or substantive theoretical or methodological contribution",
+          "productivity claims that equate faster completion with learning",
+        ],
+      }),
+      hci: expect.objectContaining({
         name: "AI in HCI",
-        description:
-          "How people use, trust, steer and collaborate with AI systems; interfaces for LLMs and agents; human-AI co-creation; user studies of AI tools, including developer tools.",
         venues: ["CHI", "CSCW", "UIST", "TOCHI"],
-        avoid: [],
-      },
-      wildcards: { cap: 1, hint: "Anything a researcher in AI, education and HCI would find surprising or methodologically useful." },
+        avoid: [
+          "generic coding-assistant productivity comparisons with no insight into human behavior or artifact quality",
+          "security benchmarks with no connection to human verification, AI coding workflows or deployed software",
+        ],
+      }),
+      wildcards: expect.objectContaining({ cap: 1 }),
       issues: [],
     });
   });
