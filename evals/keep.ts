@@ -20,7 +20,7 @@ const CASES = ["full-text.json", "abstract-only.json", "wildcard.json"];
 
 const RUBRIC: Criterion[] = [
   { name: "self-contained", ask: "Each Learning reads cold a month from now, filed on its own, without the Paper or the other Learnings beside it." },
-  { name: "worth keeping", ask: "Each Learning is worth keeping a month from now: a method, a finding or a limit, not a restatement of the title." },
+  { name: "worth-keeping", ask: "Each Learning is worth keeping a month from now: a method, a finding or a limit, not a restatement of the title." },
 ];
 
 const DRY_RUN_TIMEOUT_MS = 60_000;

@@ -573,7 +573,7 @@ describe("the rank eval", () => {
 
 describe("the evals on their fixtures", () => {
   const field = (prompt: string, name: string): string[] => [...prompt.matchAll(new RegExp(`^${name}: (.+)$`, "gm"))].map(([, value = ""]) => value);
-  const GRADES = { faithful: 4, take: 4, trends: 4, "self-contained": 4, "worth keeping": 4 };
+  const GRADES = { faithful: 4, take: 4, trends: 4, "self-contained": 4, "worth-keeping": 4 };
 
   /** A model that follows each prompt to the letter, from what the prompt gives it. */
   const obedient: Ask = async (schema, prompt) => {
@@ -607,6 +607,22 @@ describe("the evals on their fixtures", () => {
 
     // #then
     expect(failures).toEqual(expected);
+  });
+
+  test("every eval asks the model with property names the API accepts", async () => {
+    // #given
+    const API_PROPERTY = /^[a-zA-Z0-9_.-]{1,64}$/;
+    const asked: string[] = [];
+    const recording: Ask = async (schema, prompt) => {
+      asked.push(...Object.keys((schema as { properties?: object }).properties ?? {}));
+      return obedient(schema, prompt);
+    };
+
+    // #when
+    for (const declared of [dailyEval(recording), weeklyEval(recording), keepEval(recording, writes)]) await run(declared);
+
+    // #then
+    expect(asked.filter((name) => !API_PROPERTY.test(name))).toEqual([]);
   });
 
   test("the daily eval fails each fixture whose reply leaves out its last Pick", async () => {
