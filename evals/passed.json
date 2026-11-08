@@ -1,1 +1,12 @@
-{}
+{
+  "rank": {
+    "hash": "78e4c4592ea8a455",
+    "date": "2026-10-30",
+    "model": "gpt-6.1-sol"
+  },
+  "daily": {
+    "hash": "c6c312c4b0d9b1d0",
+    "date": "2026-11-07",
+    "model": "claude-sonnet-5-5"
+  }
+}
