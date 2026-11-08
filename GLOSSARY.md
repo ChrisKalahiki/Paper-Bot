@@ -13,7 +13,7 @@ One research area Chris wants papers from, such as "AI in higher education" or "
 _Avoid_: topic, category, keyword
 
 **Interests Note**:
-The Vault note where Chris lists his Interests; paper-bot reads it and never writes it.
+The Vault note where Chris lists his Interests and Followed Groups; paper-bot reads it and never writes it.
 _Avoid_: profile, config, preferences
 
 **Venue**:
@@ -25,8 +25,12 @@ A Paper paper-bot fetched for a Briefing, to be ranked once against the Interest
 _Avoid_: result, hit, near miss
 
 **Pick**:
-A Paper paper-bot chose to write up in a Briefing.
+A Paper paper-bot chose to write up in a Briefing, either by ranking it against the Interests or because a Followed Group wrote it.
 _Avoid_: result, hit, recommendation
+
+**Followed Group**:
+A group of researchers, often sharing a lab, whose every new Paper Chris wants to see: a Paper any of them wrote is a Pick whatever its ranking, shown apart from the ranked Picks. Chris lists them in the Interests Note. A lab such as DeepMind only points at Papers; a Followed Group can draw members from one.
+_Avoid_: watched author, followed lab
 
 **Wildcard**:
 A Pick outside every Interest, chosen because paper-bot judges it could still matter to Chris.

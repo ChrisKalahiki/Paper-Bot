@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-26T06:00:00",
+  "coveredThrough": "2026-10-23",
+  "interests": [
+    { "name": "AI in higher education", "description": "How AI changes university teaching, tutoring and assessment.", "venues": ["L@S"], "avoid": ["K-12 only studies"] },
+    { "name": "Context management in AI", "description": "How LLM agents choose, compress and carry context across long tasks.", "venues": [], "avoid": [] },
+    { "name": "Human-AI interaction", "description": "How people work with, trust and correct AI systems.", "venues": ["CHI"], "avoid": [] }
+  ],
+  "picks": [
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.21107", "doi:10.48550/arxiv.2610.21107"],
+        "title": "Context Rot: Agent Accuracy Falls with Session Length, Not Token Count",
+        "authors": ["Noor Haddad", "Felix Brandt"],
+        "url": "https://arxiv.org/abs/2610.21107",
+        "abstract": "We hold the number of tokens in an agent's context fixed and vary how many turns produced them. Accuracy on follow-up tasks falls by 2 points per 10 turns even when total tokens stay constant, and falls faster when earlier turns contain corrected mistakes. Pruning corrected turns recovers most of the loss."
+      },
+      "ranking": { "interests": ["Context management in AI"], "score": 9, "why": "Separates turn count from token count as the cause of degraded agent context.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "openalex",
+        "ids": ["doi:10.1016/j.compedu.2026.105301", "openalex:W4416001201"],
+        "title": "Generative AI Policies Across 120 University Syllabi",
+        "authors": ["Grace Liu", "Ahmed Saleh"],
+        "url": "https://doi.org/10.1016/j.compedu.2026.105301",
+        "abstract": "We coded the generative AI policies of 120 syllabi from 14 universities. 41% banned AI outright, 37% allowed it with disclosure and 22% required it for at least one assignment. Courses that required AI also more often redesigned assessment around in-class work."
+      },
+      "ranking": { "interests": ["AI in higher education"], "score": 8, "why": "What university instructors actually allow, ban or require in their AI policies.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.21533", "doi:10.48550/arxiv.2610.21533"],
+        "title": "Users Edit Agent Plans More Than Agent Outputs",
+        "authors": ["Sofia Marino", "Ben Carter"],
+        "url": "https://arxiv.org/abs/2610.21533",
+        "abstract": "In a two-week diary study with 38 knowledge workers using a planning agent, participants edited the agent's plan before execution in 64% of tasks but edited its final output in only 12%. Editing the plan cut the time spent correcting outputs by half."
+      },
+      "ranking": { "interests": ["Human-AI interaction", "Context management in AI"], "score": 7, "why": "Where people choose to intervene in agent work, and how much that saves.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.21890", "doi:10.48550/arxiv.2610.21890"],
+        "title": "Peer Tutoring with LLM Hints in Introductory Physics",
+        "authors": ["Jonas Weber"],
+        "url": "https://arxiv.org/abs/2610.21890",
+        "abstract": "Pairs of first-year physics students solved problems with or without an LLM that gave hints only to the student acting as tutor. Tutees in the hint condition gained 0.3 standard deviations more on a concept inventory, and tutors gained as much as tutees."
+      },
+      "ranking": { "interests": ["AI in higher education"], "score": 7, "why": "An LLM supporting the student tutor rather than replacing the tutor.", "wildcard": false },
+      "fullText": null
+    }
+  ]
+}

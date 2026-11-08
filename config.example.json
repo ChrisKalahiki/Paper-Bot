@@ -1,0 +1,25 @@
+{
+  "models": { "rank": "gpt-6.1-sol", "write": "claude-sonnet-5-5" },
+  "brainDump": "brain-dump",
+  "arxiv": { "categories": ["cs.AI", "cs.CL", "cs.LG", "cs.CV", "cs.HC", "cs.CY", "cs.MA"] },
+  "venues": {
+    "CHI": "S4363607743",
+    "CSCW": "S4210183893",
+    "UIST": "S7407087746",
+    "TOCHI": "S89276529",
+    "KDD": "S4363608767",
+    "L@S": "S7407087266",
+    "NeurIPS": "S4363606243",
+    "ICML": "S4306419644",
+    "ICLR": "S4306419637",
+    "ACL": "S4363608652",
+    "EMNLP": "S4363608991",
+    "IEEE TLT": "S130363450",
+    "Computers & Education": "S4210172634",
+    "Computers & Education: AI": "S4210183364",
+    "IJAIED": "S171267539"
+  },
+  "openalex": { "key": "your OpenAlex API key, from openalex.org/settings/api-key" },
+  "bars": { "pick": 7, "wildcard": 8 },
+  "batch": { "size": 100, "cap": 20 }
+}

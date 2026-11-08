@@ -1,0 +1,22 @@
+{
+  "rank": {
+    "hash": "8d3b7a338d57ea04",
+    "date": "2026-11-07",
+    "model": "gpt-6.1-sol"
+  },
+  "daily": {
+    "hash": "26ef156078c86170",
+    "date": "2026-11-07",
+    "model": "claude-sonnet-5-5"
+  },
+  "weekly": {
+    "hash": "2d4aa7ce9d921b3a",
+    "date": "2026-11-07",
+    "model": "claude-sonnet-5-5"
+  },
+  "keep": {
+    "hash": "59b3d274618f6840",
+    "date": "2026-11-07",
+    "model": "claude-sonnet-5-5"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "at": "2026-10-21T06:00:00",
+  "interests": [
+    { "name": "AI in higher education", "description": "How AI changes university teaching, tutoring and assessment.", "venues": ["L@S", "Computers & Education"], "avoid": ["K-12 only studies"] },
+    { "name": "Context management in AI", "description": "How LLM agents choose, compress and carry context across long tasks.", "venues": ["NeurIPS", "ICLR"], "avoid": [] },
+    { "name": "Human-AI interaction", "description": "How people work with, trust and correct AI systems.", "venues": ["CHI", "CSCW"], "avoid": [] }
+  ],
+  "picks": [
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.18211", "doi:10.48550/arxiv.2610.18211"],
+        "title": "Semester-Long Memory for Course Assistants",
+        "authors": ["Priya Raman", "Tomás Ibarra"],
+        "url": "https://arxiv.org/abs/2610.18211",
+        "abstract": "Course assistants built on LLMs forget each student between sessions. We give an assistant a per-student memory that it summarises after every session and retrieves at the start of the next, and deploy it in two introductory programming courses (n = 412) for a full semester. Compared with a stateless assistant, the memory assistant resolved 18% more follow-up questions without a TA, and students rated its answers as more relevant to their own code. Students also reported discomfort when the assistant recalled past mistakes unprompted."
+      },
+      "ranking": { "interests": ["AI in higher education", "Context management in AI"], "score": 9, "why": "A semester-long deployment of per-student memory in university courses, at the meeting point of both Interests.", "wildcard": false },
+      "fullText": "Semester-Long Memory for Course Assistants. 1 Introduction. LLM course assistants answer each question as if meeting the student for the first time. 3 Method. After each session the assistant writes a 200-word summary of the student's goals, misconceptions and code; at the next session it retrieves the three most recent summaries. 5 Results. Over 15 weeks, 412 students in two CS1 sections held 9,870 sessions. Follow-up questions resolved without a TA rose from 61% to 79% (+18 points). Relevance ratings rose from 3.4 to 4.1 of 5. 6 Discussion. 23% of interviewed students said recalled mistakes felt like surveillance; we recommend letting students view and delete their memory."
+    },
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.18476", "doi:10.48550/arxiv.2610.18476"],
+        "title": "Compress, Then Forget: Budgeted Context for Long-Horizon Agents",
+        "authors": ["Lena Hoffmann", "Kai Watanabe", "Ruth Adeyemi"],
+        "url": "https://arxiv.org/abs/2610.18476",
+        "abstract": "Long-horizon agents exceed their context windows and either truncate or summarise. We frame context management as a budgeted selection problem and train a small scorer that decides, every ten steps, which observations to keep verbatim, which to compress and which to drop. On three web and coding agent benchmarks the scorer matches full-context accuracy at 35% of the tokens and beats recursive summarisation by 6 to 11 points."
+      },
+      "ranking": { "interests": ["Context management in AI"], "score": 8, "why": "A learned policy for what an agent keeps, compresses or drops, measured against summarisation.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "openalex",
+        "ids": ["doi:10.1145/3746059.3747012", "openalex:W4415550123"],
+        "title": "When Students Overrule the Grader: Contesting AI Feedback on Essays",
+        "authors": ["Maya Goldberg", "Samuel Osei"],
+        "url": "https://doi.org/10.1145/3746059.3747012",
+        "abstract": "Universities increasingly return AI-generated feedback on written assignments. We built a contest button into an essay feedback tool used by 1,130 undergraduates and analysed 2,604 contests. Students contested 14% of comments; instructors upheld 58% of contests, mostly where the AI misread disciplinary conventions. Students who contested at least once revised more of their essays afterwards than those who never did."
+      },
+      "ranking": { "interests": ["AI in higher education", "Human-AI interaction"], "score": 8, "why": "How university students push back on AI feedback, and what instructors make of it.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.18901", "doi:10.48550/arxiv.2610.18901"],
+        "title": "Trust Calibration Cues in Code Assistants",
+        "authors": ["Hannah Cole", "Arjun Mehta"],
+        "url": "https://arxiv.org/abs/2610.18901",
+        "abstract": "Programmers over-accept wrong suggestions from code assistants. In a controlled study with 96 professional developers, we compare three cues shown next to each suggestion: a confidence score, a highlight of tokens the model was unsure about, and a one-line rationale. Token highlights cut acceptance of wrong suggestions by 27% without slowing developers down; confidence scores had no effect."
+      },
+      "ranking": { "interests": ["Human-AI interaction"], "score": 7, "why": "A controlled comparison of cues that help people judge when to trust an AI suggestion.", "wildcard": false },
+      "fullText": null
+    },
+    {
+      "candidate": {
+        "source": "arxiv",
+        "ids": ["arxiv:2610.19033", "doi:10.48550/arxiv.2610.19033"],
+        "title": "Retrieval Over Lecture Transcripts Beats Longer Context for Course Q&A",
+        "authors": ["Wei Zhang", "Olivia Brandt"],
+        "url": "https://arxiv.org/abs/2610.19033",
+        "abstract": "Should a course question-answering assistant read the whole semester's lecture transcripts in a long context window, or retrieve passages? Across 3 university courses and 1,800 student questions, retrieval of 8 passages answered 9 points more questions correctly than a 1M-token context holding every transcript, at a fiftieth of the cost. Long context did better only on questions spanning several lectures."
+      },
+      "ranking": { "interests": ["AI in higher education", "Context management in AI"], "score": 7, "why": "Long context against retrieval for a university course assistant, with cost.", "wildcard": false },
+      "fullText": "Retrieval Over Lecture Transcripts Beats Longer Context for Course Q&A. 2 Setup. Three courses (statistics, organic chemistry, macroeconomics) recorded 96 lectures. Students asked 1,800 questions through the course forum, each graded by a TA. 4 Results. Retrieval of 8 passages: 71% correct; 1M-token context: 62% correct; cost per question $0.004 against $0.21. On the 140 questions that spanned three or more lectures, long context led by 12 points."
+    },
+    {
+      "candidate": {
+        "source": "openalex",
+        "ids": ["doi:10.1145/3706598.3713012", "openalex:W4409876543"],
+        "title": "Hint Timing in Step-Based Algebra Tutors: A Classroom Replication",
+        "authors": ["Maya Okafor", "Kenneth R. Koedinger"],
+        "url": "https://doi.org/10.1145/3706598.3713012",
+        "abstract": "Step-based tutors give hints either on request or after an error. We replicate a lab study of hint timing in eight middle-school algebra classrooms (n = 236) over six weeks. Students who received a hint immediately after their second error on a step finished 11% more problems than those who could only request hints, but showed no difference on a delayed post-test. Students who requested hints least benefited most from the immediate hints."
+      },
+      "ranking": { "interests": [], "score": 3, "why": "A middle-school tutoring study, outside the Interests.", "wildcard": false },
+      "groups": ["Koedinger lab"],
+      "fullText": null
+    }
+  ]
+}

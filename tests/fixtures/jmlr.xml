@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>JMLR</title>
+    <link>https://www.jmlr.org</link>
+    <item>
+      <title>Convergence of Agentic Policy Search</title>
+      <description>We prove convergence for policy search with tool feedback.</description>
+      <link>https://www.jmlr.org/papers/v27/25-0101.html</link>
+      <pubDate>2026</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,1592 @@
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Config } from "../src/config.ts";
+import type { Fetch } from "../src/http.ts";
+import { PaperBotError } from "../src/errors.ts";
+import { INTERESTS_NOTE } from "../src/interests.ts";
+import type { Sleep } from "../src/retry.ts";
+import { dailyScan } from "../src/scan.ts";
+import { openStore } from "../src/store.ts";
+import {
+  ARXIV_FEED,
+  arxivFeedOf,
+  arxivFetch,
+  type FakeCommands,
+  failingFirst,
+  fakeClaude,
+  fakeCodex,
+  fakeCommands,
+  fakeSleep,
+  fixture,
+  idsIn,
+  INTERESTS,
+  MONDAY,
+  sourcesFetch,
+  tempDir,
+  testConfig,
+} from "./harness.ts";
+
+const BRIEFING = "Research/Briefings/Daily/2026-10-26 Daily Briefing.md";
+const TUESDAY = new Date("2026-10-27T12:00:00Z");
+
+const PICKED = {
+  "arxiv:2610.32109": { score: 8, interests: ["Context management in AI"] },
+  "arxiv:2610.31679": { score: 9, interests: ["AI in higher education", "Context management in AI"] },
+};
+
+function sandbox() {
+  const dir = tempDir();
+  return { storePath: join(dir, "paper-bot.db"), logDir: join(dir, "logs") };
+}
+
+type ScanSetup = { commands: FakeCommands; storePath: string; logDir: string; fetch?: Fetch; config?: Config; at?: Date; sleep?: Sleep };
+
+/** One Daily Scan against a store opened for it and closed after, as `paper-bot scan --daily` does. */
+async function scan({ commands, storePath, logDir, fetch = arxivFetch(), config = testConfig(), at = MONDAY, sleep = fakeSleep() }: ScanSetup) {
+  const store = openStore(storePath);
+  try {
+    return await dailyScan({ config, store, fetch, exec: commands.exec, clock: () => at, logDir, sleep });
+  } finally {
+    store.close();
+  }
+}
+
+function stored(storePath: string) {
+  const store = openStore(storePath);
+  try {
+    return { scans: store.scans(), picks: store.picks() };
+  } finally {
+    store.close();
+  }
+}
+
+const commandNames = (commands: FakeCommands): string[] => commands.calls.map(({ argv }) => argv.slice(0, 2).join(" "));
+const codexCalls = (commands: FakeCommands) => commands.calls.filter(({ argv }) => argv[0] === "codex");
+
+describe("a Daily Scan", () => {
+  test("writes a Daily Briefing of the Picks scoring 7 or above, best first", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 2
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring](https://arxiv.org/abs/2610.31679)** · *AI in higher education · Context management in AI*
+   **Why it's here:** Why arxiv:2610.31679.
+   What arxiv:2610.31679 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-31679
+2. **[Context or Knowledge: How LLMs Attribute Their Own Answers](https://arxiv.org/abs/2610.32109)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.32109.
+   What arxiv:2610.32109 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-32109
+
+2 candidates · arXiv 2
+`);
+  });
+
+  test("records the Scan as written, with its Picks in rank order, once the Briefing is written", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(stored(storePath)).toEqual({
+      scans: [
+        {
+          id: 1,
+          kind: "daily",
+          date: "2026-10-26",
+          outcome: "written",
+          reason: null,
+          briefing: BRIEFING,
+          sources: {
+            arxiv: { candidates: 2 },
+            openalex: { candidates: 0 },
+            eric: { candidates: 0 },
+            pmlr: { candidates: 0 },
+            jmlr: { candidates: 0 },
+            hf: { candidates: 0 },
+            deepmind: { candidates: 0 },
+            anthropic: { candidates: 0 },
+            openai: { candidates: 0 },
+          },
+        },
+      ],
+      picks: [
+        {
+          scanId: 1,
+          paper: "arxiv:2610.31679",
+          title: "MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring",
+          rank: 1,
+          interests: ["AI in higher education", "Context management in AI"],
+          why: "Why arxiv:2610.31679.",
+          summary: "What arxiv:2610.31679 found.",
+        },
+        {
+          scanId: 1,
+          paper: "arxiv:2610.32109",
+          title: "Context or Knowledge: How LLMs Attribute Their Own Answers",
+          rank: 2,
+          interests: ["Context management in AI"],
+          why: "Why arxiv:2610.32109.",
+          summary: "What arxiv:2610.32109 found.",
+        },
+      ],
+    });
+  });
+
+  test("picks at most 5, and none that matches no Interest", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const rankings = Object.fromEntries(
+      Array.from({ length: 7 }, (_, i) => [`arxiv:2610.${30001 + i}`, { score: 10 - Math.floor(i / 2), interests: i === 0 ? [] : ["Context management in AI"] }]),
+    );
+    const commands = fakeCommands({ rankings });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: arxivFetch(arxivFeedOf(7)) });
+
+    // #then
+    expect(stored(storePath).picks.map((pick) => pick.paper)).toEqual([
+      "arxiv:2610.30002",
+      "arxiv:2610.30003",
+      "arxiv:2610.30004",
+      "arxiv:2610.30005",
+      "arxiv:2610.30006",
+    ]);
+  });
+
+  test("is skipped with its reason, writing no Briefing, when no Candidate scores 7 or above", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "arxiv:2610.32109": { score: 6, interests: ["Context management in AI"] } } });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect({ result, notes: [...commands.vault.keys()], commands: commandNames(commands), scans: stored(storePath).scans.map((row) => row.outcome) }).toEqual({
+      result: { outcome: "skipped", reason: "no Candidate scored 7 or above" },
+      notes: [INTERESTS_NOTE],
+      commands: ["brain-dump show", "codex exec"],
+      scans: ["skipped"],
+    });
+  });
+
+  test("fails before any fetch when the Interests Note is missing", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ notes: {} });
+    const fetch = arxivFetch();
+    const reason = `brain-dump show failed (exit 1): brain-dump: ${INTERESTS_NOTE} is not a note in the write allowlist`;
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ result, fetched: fetch.urls, commands: commandNames(commands), scans: stored(storePath).scans.map(({ outcome, reason }) => ({ outcome, reason })) }).toEqual({
+      result: { outcome: "failed", reason },
+      fetched: [],
+      commands: ["brain-dump show"],
+      scans: [{ outcome: "failed", reason }],
+    });
+  });
+
+  test("fails before any fetch when the Interests Note lists no Interests", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ notes: { [INTERESTS_NOTE]: "# Interests\n\n## Wildcards\nUp to 1 per Daily Briefing.\n" } });
+    const fetch = arxivFetch();
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ result, fetched: fetch.urls }).toEqual({ result: { outcome: "failed", reason: `${INTERESTS_NOTE} lists no Interests` }, fetched: [] });
+  });
+
+  test("fails, recording why, when every source fails", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = async () => new Response("down", { status: 503 });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(stored(storePath).scans.map(({ outcome, reason, sources }) => ({ outcome, reason, sources }))).toEqual([
+      {
+        outcome: "failed",
+        reason: "every source failed (arXiv: arXiv RSS answered 503; OpenAlex: OpenAlex answered 503; ERIC: ERIC answered 503; PMLR: PMLR answered 503; JMLR: JMLR answered 503)",
+        sources: {
+          arxiv: { error: "arXiv RSS answered 503" },
+          openalex: { error: "OpenAlex answered 503" },
+          eric: { error: "ERIC answered 503" },
+          pmlr: { error: "PMLR answered 503" },
+          jmlr: { error: "JMLR answered 503" },
+          hf: { error: "HF daily papers answered 503" },
+          deepmind: { error: "DeepMind answered 503 for https://deepmind.google/research/publications/" },
+          anthropic: { error: "Anthropic answered 503 for https://transformer-circuits.pub/feed.xml" },
+          openai: { error: "OpenAI answered 503" },
+        },
+      },
+    ]);
+  });
+
+  test("still writes its Briefing when some sources fail, recording which", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const working = arxivFetch();
+    const fetch = async (url: string) => (url.startsWith("https://api.openalex.org/") ? new Response("busy", { status: 429 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ outcome: result.outcome, openalex: stored(storePath).scans[0]?.sources?.openalex }).toEqual({ outcome: "written", openalex: { error: "OpenAlex answered 429" } });
+  });
+
+  test("never ranks a Paper twice: the next Scan drops Papers already in the store", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, at: TUESDAY });
+
+    // #then
+    expect({ result, commands: commandNames(commands).filter((name) => name !== "brain-dump show") }).toEqual({
+      result: { outcome: "skipped", reason: "no new Candidates" },
+      commands: [],
+    });
+  });
+
+  test("ranks in batches, one read-only codex exec each, with the pinned model and an output schema", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config: testConfig({ batch: { size: 1, cap: 20 } }) });
+
+    // #then
+    const codex = ["codex", "exec", "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "-m", "gpt-test", "--output-schema", "<schema>", "-"];
+    expect(codexCalls(commands).map(({ argv }) => argv.map((arg) => (arg.endsWith("rank-schema.json") ? "<schema>" : arg)))).toEqual([codex, codex]);
+  });
+
+  test("saves each batch's scores as it finishes, so a failed batch's Candidates are the only ones ranked again", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 20 } });
+    const lowScores = (stdin: string) => JSON.stringify({ rankings: idsIn(stdin).map((id) => ({ id, interests: [], score: 3, why: "", wildcard: false })) });
+    let batches = 0;
+    const secondBatchFails = fakeCommands({
+      codex: (_argv, stdin) => {
+        batches++;
+        return batches === 2 || batches === 3 ? { exitCode: 1, stdout: "", stderr: "usage limit" } : { exitCode: 0, stdout: lowScores(stdin), stderr: "" };
+      },
+    });
+    await scan({ commands: secondBatchFails, storePath, logDir, config });
+    const next = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands: next, storePath, logDir, config, at: TUESDAY });
+
+    // #then
+    expect(codexCalls(next).map(({ stdin }) => idsIn(stdin))).toEqual([["arxiv:2610.31679"]]);
+  });
+
+  test("fails when every ranking batch fails", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ codex: () => ({ exitCode: null, stdout: "", stderr: "" }) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(result).toEqual({ outcome: "failed", reason: "every ranking batch failed" });
+  });
+
+  test("writes the prose with claude -p, with no tools, against a JSON schema", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    const claude = commands.calls.find(({ argv }) => argv[0] === "claude");
+    expect(claude?.argv.slice(0, -1)).toEqual([
+      "claude",
+      "-p",
+      "--no-session-persistence",
+      "--model",
+      "claude-test",
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--safe-mode",
+      "--output-format",
+      "json",
+      "--json-schema",
+    ]);
+  });
+
+  test("fails, writing no Briefing and recording no Picks, when claude reports an error", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const envelope = { type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" };
+    const commands = fakeCommands({ rankings: PICKED, claude: () => ({ exitCode: 0, stdout: JSON.stringify(envelope), stderr: "" }) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect({ result, briefing: commands.vault.has(BRIEFING), picks: stored(storePath).picks }).toEqual({
+      result: { outcome: "failed", reason: "claude -p failed: Not logged in · Please run /login" },
+      briefing: false,
+      picks: [],
+    });
+  });
+
+  test("fails, recording no Picks, when brain-dump refuses the Briefing", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const refused = { exitCode: 1, stdout: "", stderr: "brain-dump: Vault not found at /nowhere\n" };
+    const commands = fakeCommands({ rankings: PICKED, writeBriefing: () => refused });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect({ result, picks: stored(storePath).picks }).toEqual({
+      result: { outcome: "failed", reason: "brain-dump write-briefing failed (exit 1): brain-dump: Vault not found at /nowhere" },
+      picks: [],
+    });
+  });
+
+  describe("again on a day whose Daily Briefing is written", () => {
+    test("reports it already written, fetching, ranking and writing nothing, and records no Scan", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      const first = fakeCommands({ rankings: PICKED });
+      await scan({ commands: first, storePath, logDir });
+      const again = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(first.vault) });
+      const fetch = arxivFetch();
+
+      // #when
+      const result = await scan({ commands: again, storePath, logDir, fetch });
+
+      // #then
+      expect({ result, commands: again.calls.length, fetched: fetch.urls.length, scans: stored(storePath).scans.map(({ outcome }) => outcome) }).toEqual({
+        result: { outcome: "already written", briefing: BRIEFING },
+        commands: 0,
+        fetched: 0,
+        scans: ["written"],
+      });
+    });
+
+    test("reports a Briefing the store lost as already written, not failed, leaving its Picks for the next Scan", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: INTERESTS, [BRIEFING]: "written before the store was lost" } });
+      const result = await scan({ commands, storePath, logDir });
+      const tuesday = fakeCommands({ rankings: PICKED });
+
+      // #when
+      const next = await scan({ commands: tuesday, storePath, logDir, at: TUESDAY });
+
+      // #then
+      expect({
+        result,
+        failed: stored(storePath).scans.some(({ outcome }) => outcome === "failed"),
+        next,
+        codex: codexCalls(tuesday).length,
+        picks: stored(storePath).picks.map(({ paper }) => paper),
+      }).toEqual({
+        result: { outcome: "already written", briefing: BRIEFING },
+        failed: false,
+        next: { outcome: "written", briefing: "Research/Briefings/Daily/2026-10-27 Daily Briefing.md" },
+        codex: 0,
+        picks: ["arxiv:2610.31679", "arxiv:2610.32109"],
+      });
+    });
+  });
+
+  test("logs the Scan to <date>-daily.log", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").trim().split("\n");
+    expect({ files: readdirSync(logDir), last: lines.at(-1)?.replace(/^\S+ /, "") }).toEqual({ files: ["2026-10-26-daily.log"], last: "Daily Scan written" });
+  });
+});
+
+describe("a Daily Scan reading the whole Interests Note", () => {
+  const VENUES_AND_AVOID = `## Context management in AI
+How agents choose, compress and carry context.
+
+- Venues: ACL, EMNLP
+- Avoid: pure long-context architecture papers; benchmark-only papers
+
+## Wildcards
+Up to 1 per Daily Briefing. Anything surprising.
+`;
+
+  test("gives the ranker each Interest's Venues and Avoid list", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: VENUES_AND_AVOID } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config: testConfig({ venues: { ACL: "S4363608652", EMNLP: "S4363608991" } }) });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain(`## Context management in AI
+How agents choose, compress and carry context.
+Venues: ACL, EMNLP
+Avoid: pure long-context architecture papers; benchmark-only papers`);
+  });
+
+  test("adds flagged Wildcards scoring 8 or above after the Picks, up to the cap, marked in the Briefing", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({
+      rankings: {
+        "arxiv:2610.30001": { score: 7, interests: ["Context management in AI"] },
+        "arxiv:2610.30002": { score: 7, wildcard: true },
+        "arxiv:2610.30003": { score: 8, wildcard: true },
+        "arxiv:2610.30004": { score: 9, wildcard: true },
+        "arxiv:2610.30005": { score: 10 },
+      },
+    });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: arxivFetch(arxivFeedOf(5)) });
+
+    // #then
+    const lines = commands.vault.get(BRIEFING)?.split("\n") ?? [];
+    expect({ picks: stored(storePath).picks.map((pick) => pick.paper), titles: lines.filter((line) => /^\d+\. /.test(line)) }).toEqual({
+      picks: ["arxiv:2610.30001", "arxiv:2610.30004"],
+      titles: ["1. **[Paper 1](https://arxiv.org/abs/2610.30001)** · *Context management in AI*", "2. **[Paper 4](https://arxiv.org/abs/2610.30004)** · *Wildcard*"],
+    });
+  });
+
+  test("writes a Briefing of Wildcards alone when no Candidate matches an Interest", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "arxiv:2610.32109": { score: 9, wildcard: true } } });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir });
+
+    // #then
+    expect({ outcome: result.outcome, picks: stored(storePath).picks.map((pick) => pick.paper) }).toEqual({ outcome: "written", picks: ["arxiv:2610.32109"] });
+  });
+
+  test("picks no Wildcards when the note has no Wildcards section", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents choose, compress and carry context.\n";
+    const commands = fakeCommands({ rankings: { ...PICKED, "arxiv:2610.32109": { score: 9, wildcard: true } }, notes: { [INTERESTS_NOTE]: note } });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(stored(storePath).picks.map((pick) => pick.paper)).toEqual(["arxiv:2610.31679"]);
+  });
+
+  test("still runs with an unreadable bullet and an unknown Venue, naming them on an Interests Note issues line", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = `${VENUES_AND_AVOID}\n## AI in higher education\nHow AI changes university teaching.\n\n- Priority: high\n`;
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config: testConfig({ venues: { ACL: "S4363608652" } }) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.split("\n\n").slice(-2)).toEqual([
+      "2 candidates · arXiv 2",
+      'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"; unreadable bullet under AI in higher education: "- Priority: high"\n',
+    ]);
+  });
+});
+
+describe("a Daily Scan across sources", () => {
+  const ALL_SOURCES = {
+    "https://rss.arxiv.org/": ARXIV_FEED,
+    "https://api.openalex.org/": fixture("openalex-works.json"),
+    "https://api.ies.ed.gov/eric/": fixture("eric.json"),
+    "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"),
+    "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml"),
+    "https://www.jmlr.org/": fixture("jmlr.xml"),
+  };
+  const WEDNESDAY = new Date("2026-10-28T12:00:00Z");
+  const openalexServing = (...works: object[]) => sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+  const work = (id: string, extra: object = {}) => ({ id: `https://openalex.org/${id}`, title: `Work ${id}`, abstract_inverted_index: { Text: [0] }, ...extra });
+  const rankedIds = (commands: FakeCommands) => codexCalls(commands).flatMap(({ stdin }) => idsIn(stdin));
+
+  test("ranks every source's Candidates once, a Paper two sources share only once", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch(ALL_SOURCES) });
+
+    // #then
+    expect(rankedIds(commands)).toEqual([
+      "arxiv:2610.32109",
+      "arxiv:2610.31679",
+      "doi:10.1145/3772318.3790001",
+      "openalex:W4416000003",
+      "doi:10.1080/03075079.2026.2290001",
+      "eric:ED670002",
+      "url:https://proceedings.mlr.press/v306/lee26a.html",
+      "url:https://proceedings.mlr.press/v306/ono26b.html",
+      "url:https://www.jmlr.org/papers/v27/25-0101.html",
+    ]);
+  });
+
+  test("counts the ranked Candidates per source in the footer", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch(ALL_SOURCES) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.trim().split("\n").at(-1)).toBe("9 candidates · arXiv 2 · OpenAlex 2 · ERIC 2 · PMLR 2 · JMLR 1");
+  });
+
+  test("drops a Candidate from another source that matches a stored id, and its new ids join that Paper", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir });
+    const preprint = work("W4416000002", { doi: "https://doi.org/10.48550/arXiv.2610.32109" });
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch: openalexServing(preprint) });
+    const commands = fakeCommands();
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, at: WEDNESDAY, fetch: openalexServing(work("W4416000002")) });
+
+    // #then
+    expect({ result, ranked: rankedIds(commands) }).toEqual({ result: { outcome: "skipped", reason: "no new Candidates" }, ranked: [] });
+  });
+
+  test("logs a Candidate whose ids match two stored Papers, and merges none of its ids", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir });
+    const bridging = work("W9", { doi: "https://doi.org/10.48550/arXiv.2610.32109", locations: [{ landing_page_url: "https://arxiv.org/abs/2610.31679" }] });
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch: openalexServing(bridging) });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, at: WEDNESDAY, fetch: openalexServing(work("W9")) });
+
+    // #then
+    const log = readFileSync(join(logDir, "2026-10-27-daily.log"), "utf8");
+    expect({ logged: log.includes('"Work W9" (arxiv:2610.32109) matches 2 stored Papers; its ids were not merged'), ranked: rankedIds(commands) }).toEqual({
+      logged: true,
+      ranked: ["openalex:W9"],
+    });
+  });
+
+  test("leaves out, and logs, a Candidate whose ids match two others fetched in the same Scan", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const bridging = work("W9", { doi: "https://doi.org/10.48550/arXiv.2610.32109", locations: [{ landing_page_url: "https://arxiv.org/abs/2610.31679" }] });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [bridging] }) });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const log = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8");
+    expect({ logged: log.includes('"Work W9" (arxiv:2610.32109) matches two other Candidates; its ids were not merged'), ranked: rankedIds(commands) }).toEqual({
+      logged: true,
+      ranked: ["arxiv:2610.32109", "arxiv:2610.31679"],
+    });
+  });
+
+  test("ranks a Candidate with no abstract but never Picks it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const lee = "url:https://proceedings.mlr.press/v306/lee26a.html";
+    const ono = "url:https://proceedings.mlr.press/v306/ono26b.html";
+    const interests = ["Context management in AI"];
+    const commands = fakeCommands({ rankings: { [lee]: { score: 8, interests }, [ono]: { score: 10, interests } } });
+    const fetch = sourcesFetch({ "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ ranked: rankedIds(commands), picks: stored(storePath).picks.map((pick) => pick.paper) }).toEqual({ ranked: [lee, ono], picks: [lee] });
+  });
+
+  test("tells the ranker a Candidate has no abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain("title: Sparse World Models\nabstract: none\n");
+  });
+
+  test("asks OpenAlex for the works of the Venues the Interests Note watches", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents carry context.\n\n- Venues: ACL, EMNLP\n";
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+    const fetch = arxivFetch();
+    const config = testConfig({ venues: { ACL: "S4363608652", EMNLP: "S4363608991", CHI: "S4363607743" } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch, config });
+
+    // #then
+    const filters = fetch.urls.filter((url) => url.startsWith("https://api.openalex.org/")).map((url) => new URL(url).searchParams.get("filter"));
+    expect(filters).toContain("primary_location.source.id:S4363608652|S4363608991,publication_year:2026|2025");
+  });
+});
+
+describe("a Daily Briefing's content", () => {
+  const ARXIV_HTML = fixture("arxiv-html.html");
+  const PMLR = { "https://proceedings.mlr.press/feed.xml": fixture("pmlr-root.xml"), "https://proceedings.mlr.press/v306/assets/rss/feed.xml": fixture("pmlr-v306.xml") };
+  const context = ["Context management in AI"];
+  const claudePrompt = (commands: FakeCommands) => commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+  const failing = (prefix: string, fetch: Fetch): Fetch => async (url) => (url.startsWith(prefix) ? new Response("down", { status: 503 }) : fetch(url));
+
+  test("is the take, the ranked Picks, a collapsed Also considered list and the full footer", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({
+      rankings: {
+        "arxiv:2610.30001": { score: 9, interests: context },
+        "arxiv:2610.30002": { score: 8, interests: ["AI in higher education"] },
+        "arxiv:2610.30003": { score: 6 },
+        "arxiv:2610.30004": { score: 5 },
+        "arxiv:2610.30005": { score: 4 },
+        "arxiv:2610.30006": { score: 3 },
+        "arxiv:2610.30007": { score: 2 },
+        "arxiv:2610.30008": { score: 1 },
+        "url:https://proceedings.mlr.press/v306/ono26b.html": { score: 10, interests: context },
+      },
+    });
+    const fetch = failing(
+      "https://api.openalex.org/",
+      sourcesFetch({ "https://rss.arxiv.org/": arxivFeedOf(8), ...PMLR, "https://arxiv.org/html/2610.30001": ARXIV_HTML }),
+    );
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 2
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[Paper 1](https://arxiv.org/abs/2610.30001)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.30001.
+   What arxiv:2610.30001 found.
+   - [ ] Keep ^pick-2610-30001
+2. **[Paper 2](https://arxiv.org/abs/2610.30002)** · *AI in higher education*
+   **Why it's here:** Why arxiv:2610.30002.
+   What arxiv:2610.30002 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-30002
+
+<details><summary>Also considered (6)</summary>
+
+- [Sparse World Models](https://proceedings.mlr.press/v306/ono26b.html) · *no abstract*
+- [Paper 3](https://arxiv.org/abs/2610.30003)
+- [Paper 4](https://arxiv.org/abs/2610.30004)
+- [Paper 5](https://arxiv.org/abs/2610.30005)
+- [Paper 6](https://arxiv.org/abs/2610.30006)
+- [Paper 7](https://arxiv.org/abs/2610.30007)
+
+</details>
+
+10 candidates · arXiv 8 · PMLR 2
+
+OpenAlex failed: OpenAlex answered 503
+`);
+  });
+
+  test("fetches full text for the Picks only", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = arxivFetch();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://arxiv.org/"))).toEqual(["https://arxiv.org/html/2610.31679", "https://arxiv.org/html/2610.32109"]);
+  });
+
+  test("gives the writer each Pick's full text, and tells it which Picks have only an abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://arxiv.org/html/2610.32109": ARXIV_HTML });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const prompt = claudePrompt(commands);
+    expect({
+      withFullText: prompt.includes("full text: Context or Knowledge: How LLMs Attribute Their Own Answers Abstract We edit the KV cache & ask"),
+      fromAbstract: prompt.match(/^full text: none.*$/gm),
+    }).toEqual({ withFullText: true, fromAbstract: ["full text: none; write from the abstract"] });
+  });
+
+  test("reads an OpenAlex Pick's open-access PDF when arXiv has no HTML for it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { "openalex:W1": { score: 9, interests: context } } });
+    const work = { id: "https://openalex.org/W1", title: "Tutors", abstract_inverted_index: { Text: [0] }, best_oa_location: { pdf_url: "https://example.edu/w1.pdf" } };
+    const pdf = readFileSync(join(import.meta.dir, "fixtures", "paper.pdf"));
+    const served = sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: [work] }) });
+    const fetch = async (url: string) => (url === "https://example.edu/w1.pdf" ? new Response(pdf) : served(url));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(claudePrompt(commands)).toContain("full text: Full text of the Paper.");
+  });
+
+  test("still writes a Pick, from its abstract, when reading its full text fails, and logs why", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const fetch = async (url: string) => {
+      if (url.startsWith("https://arxiv.org/html/")) throw new Error("connection reset");
+      return arxivFetch()(url);
+    };
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    const log = readFileSync(join(logDir, readdirSync(logDir)[0] ?? ""), "utf8");
+    expect({ outcome: result.outcome, logged: log.includes("no full text for arxiv:2610.31679: connection reset") }).toEqual({ outcome: "written", logged: true });
+  });
+
+  test("names each failed source on its own footer line, before the Interests Note issues", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const note = "## Context management in AI\nHow agents carry context.\n\n- Venues: EMNLP\n";
+    const commands = fakeCommands({ rankings: PICKED, notes: { [INTERESTS_NOTE]: note } });
+    const fetch = failing("https://www.jmlr.org/", failing("https://api.ies.ed.gov/", arxivFetch()));
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)?.split("\n\n").slice(-4)).toEqual([
+      "2 candidates · arXiv 2",
+      "ERIC failed: ERIC answered 503",
+      "JMLR failed: JMLR answered 503",
+      'Interests Note issues: unknown Venue under Context management in AI: "EMNLP"\n',
+    ]);
+  });
+
+  test("leaves out Also considered when every ranked Candidate is a Pick", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).not.toContain("Also considered");
+  });
+});
+
+describe("a Daily Scan that meets failures", () => {
+  test("retries a fetch that fails once after a short wait, and counts that source", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const sleep = fakeSleep();
+    const working = arxivFetch();
+    let arxivTries = 0;
+    const fetch = async (url: string) => (url.startsWith("https://rss.arxiv.org/") && ++arxivTries === 1 ? new Response("busy", { status: 503 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, arxiv: stored(storePath).scans[0]?.sources?.arxiv, waits: sleep.waits }).toEqual({
+      outcome: "written",
+      arxiv: { candidates: 2 },
+      waits: [30_000],
+    });
+  });
+
+  test("retries a ranking call that hits the usage limit once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const commands = fakeCommands({ codex: failingFirst({ exitCode: 1, stdout: "", stderr: "You've hit your usage limit" }, fakeCodex(PICKED)) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, codex: codexCalls(commands).length, waits: sleep.waits }).toEqual({ outcome: "written", codex: 2, waits: [30_000] });
+  });
+
+  test("ranks at most the cap of batches; the next Scan ranks the overflow first, from its stored abstract", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 1 } });
+    await scan({ commands: fakeCommands({ rankings: PICKED }), storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => stdin.slice(stdin.search(/^id: /m)).split("\n").slice(0, 3))).toEqual([
+      [
+        "id: arxiv:2610.31679",
+        "title: MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring",
+        "abstract: Five open-weight tutors over 5,000+ simulated dialogues; how you score them changes who looks good.",
+      ],
+    ]);
+  });
+
+  test("puts a batch that fails both tries into pending, and the next Scan ranks it first", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const config = testConfig({ batch: { size: 1, cap: 20 } });
+    const secondBatchFails = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.31679") ? { exitCode: 1, stdout: "", stderr: "usage limit" } : fakeCodex()(argv, stdin)) });
+    await scan({ commands: secondBatchFails, storePath, logDir, config });
+    const commands = fakeCommands({ rankings: PICKED });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, at: TUESDAY, fetch: arxivFetch(arxivFeedOf(1)) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([["arxiv:2610.31679"], ["arxiv:2610.30001"]]);
+  });
+
+  describe("with a failed source and a failed ranking batch", () => {
+    async function degradedScan() {
+      const { storePath, logDir } = sandbox();
+      const usageLimit = { exitCode: 1, stdout: "", stderr: "usage limit" };
+      const commands = fakeCommands({ codex: (argv, stdin) => (idsIn(stdin).includes("arxiv:2610.32109") ? usageLimit : fakeCodex(PICKED)(argv, stdin)) });
+      const working = arxivFetch();
+      const fetch = async (url: string) => (url.startsWith("https://api.openalex.org/") ? new Response("busy", { status: 429 }) : working(url));
+      const result = await scan({ commands, storePath, logDir, fetch, config: testConfig({ batch: { size: 1, cap: 20 } }) });
+      return { result, commands, storePath };
+    }
+    const failures = [
+      "OpenAlex failed: OpenAlex answered 429",
+      "Ranking batch 1 of 2 failed, its Candidates wait for the next Scan: codex exec failed (exit 1): usage limit",
+    ];
+
+    test("writes a degraded Briefing whose footer names what failed", async () => {
+      // #given
+      const { commands } = await degradedScan();
+
+      // #when
+      const footer = commands.vault.get(BRIEFING)?.trim().split("\n\n").slice(-3);
+
+      // #then
+      expect(footer).toEqual(["1 candidates · arXiv 1", ...failures]);
+    });
+
+    test("records the Scan as written, with what failed as its reason", async () => {
+      // #given
+      const { storePath } = await degradedScan();
+
+      // #when
+      const [row] = stored(storePath).scans;
+
+      // #then
+      expect({ outcome: row?.outcome, reason: row?.reason }).toEqual({ outcome: "written", reason: `degraded: ${failures.join("; ")}` });
+    });
+  });
+
+  test("fails without fetching or calling an LLM when brain-dump can't be started", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const exec: typeof commands.exec = async (argv, options) => {
+      if (argv[0] === "brain-dump") throw new PaperBotError("cannot start brain-dump: ENOENT");
+      return commands.exec(argv, options);
+    };
+    const fetch = arxivFetch();
+
+    // #when
+    const result = await scan({ commands: { ...commands, exec }, storePath, logDir, fetch });
+
+    // #then
+    expect({ result, fetched: fetch.urls, commands: commandNames(commands) }).toEqual({
+      result: { outcome: "failed", reason: "cannot start brain-dump: ENOENT" },
+      fetched: [],
+      commands: [],
+    });
+  });
+
+  describe("re-run after its Briefing write failed", () => {
+    async function failedThenRerun() {
+      const { storePath, logDir } = sandbox();
+      const writeFails = fakeCommands({ rankings: PICKED, claude: () => ({ exitCode: 1, stdout: "", stderr: "You've hit your session limit" }) });
+      await scan({ commands: writeFails, storePath, logDir });
+      const rerun = fakeCommands({ rankings: PICKED });
+      const result = await scan({ commands: rerun, storePath, logDir });
+      return { storePath, logDir, rerun, result };
+    }
+
+    test("writes the Briefing from the saved scores without ranking again", async () => {
+      // #given
+      const { rerun, result, storePath } = await failedThenRerun();
+
+      // #when
+      const picks = stored(storePath).picks.map((pick) => pick.paper);
+
+      // #then
+      expect({ result, codex: codexCalls(rerun).length, picks }).toEqual({
+        result: { outcome: "written", briefing: BRIEFING },
+        codex: 0,
+        picks: ["arxiv:2610.31679", "arxiv:2610.32109"],
+      });
+    });
+
+    test("is safe to repeat: a third Scan writes nothing and records no Picks twice", async () => {
+      // #given
+      const { storePath, logDir, rerun } = await failedThenRerun();
+      const third = fakeCommands({ rankings: PICKED, notes: Object.fromEntries(rerun.vault) });
+
+      // #when
+      const result = await scan({ commands: third, storePath, logDir });
+
+      // #then
+      expect({ result, written: third.calls.some(({ argv }) => argv[1] === "write-briefing"), picks: stored(storePath).picks.length }).toEqual({
+        result: { outcome: "already written", briefing: BRIEFING },
+        written: false,
+        picks: 2,
+      });
+    });
+  });
+
+  test("logs each LLM call's exit code and duration", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED, codex: failingFirst({ exitCode: null, stdout: "", stderr: "" }, fakeCodex(PICKED)) });
+
+    // #when
+    await scan({ commands, storePath, logDir });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    const calls = lines.flatMap((line) => line.match(/(codex exec|claude -p) (exited \S+|timed out) after \d+ ms$/)?.slice(1, 3).join(" ") ?? []);
+    expect(calls).toEqual(["codex exec timed out", "codex exec exited 0", "claude -p exited 0"]);
+  });
+
+  test("retries a writing call that reports is_error once after a short wait", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const sleep = fakeSleep();
+    const notLoggedIn = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" });
+    const commands = fakeCommands({ rankings: PICKED, claude: failingFirst({ exitCode: 0, stdout: notLoggedIn, stderr: "" }, fakeClaude) });
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, sleep });
+
+    // #then
+    expect({ outcome: result.outcome, waits: sleep.waits }).toEqual({ outcome: "written", waits: [30_000] });
+  });
+});
+describe("a Daily Scan with pointers", () => {
+  const candidateIn = (prompt: string | undefined, id: string): string | undefined => prompt?.split("\n\n").find((block) => block.startsWith(`id: ${id}\n`))?.trim();
+  const withHf = () => sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json") });
+
+  test("tells the ranker, as text, that a Candidate is on HF daily papers", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: withHf() });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: on HF daily papers");
+  });
+
+  test("adds no Candidate for a Paper HF lists that no source fetched", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: withHf() });
+
+    // #then
+    expect(codexCalls(commands).flatMap(({ stdin }) => idsIn(stdin))).toEqual(["arxiv:2610.32109", "arxiv:2610.31679"]);
+  });
+
+  test("tells the ranker OpenAI announced a Candidate whose title an OpenAI research post shares, whatever its case", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://openai.com/": fixture("openai-news.xml") });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: announced by OpenAI");
+  });
+
+  const DEEPMIND = {
+    "https://deepmind.google/research/publications/": fixture("deepmind-publications.html"),
+    "https://deepmind.google/research/publications/231045/": fixture("deepmind-publication-231045.html"),
+    "https://deepmind.google/research/publications/231020/": fixture("deepmind-publication-231020.html"),
+    "https://deepmind.google/research/publications/230990/": fixture("deepmind-publication-230990.html"),
+  };
+  const OPENREVIEW = "url:https://openreview.net/forum?id=Ab12Cd34";
+
+  test("ranks a lab Paper with no arXiv id or DOI as a Candidate identified by its URL, and counts it under its lab", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: { ...PICKED, [OPENREVIEW]: { score: 7, interests: ["AI in higher education"] } } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, ...DEEPMIND }) });
+
+    // #then
+    expect({
+      ranked: candidateIn(codexCalls(commands)[0]?.stdin, OPENREVIEW),
+      footer: commands.vault.get(BRIEFING)?.includes("3 candidates · arXiv 2 · DeepMind 1"),
+    }).toEqual({
+      ranked: `id: ${OPENREVIEW}\ntitle: Tutoring Agents That Ask Before They Tell\nabstract: A tutoring agent that asks a diagnostic question and then explains helps students more than one that explains at once.\nsignals: announced by DeepMind`,
+      footer: true,
+    });
+  });
+
+  test("gives an arXiv Candidate HF's listing and a lab's announcement together", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const fetch = sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://huggingface.co/": fixture("hf-daily-papers.json"), ...DEEPMIND });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "arxiv:2610.32109")).toEndWith("\nsignals: on HF daily papers; announced by DeepMind");
+  });
+
+  test("never reads a lab post again once a Scan has read it", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ commands: fakeCommands(), storePath, logDir, fetch: sourcesFetch(DEEPMIND) });
+    const fetch = sourcesFetch(DEEPMIND);
+
+    // #when
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://deepmind.google/"))).toEqual(["https://deepmind.google/research/publications/"]);
+  });
+
+  test("reads a lab's posts again next Scan when this Scan's reading of them failed", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const failing = sourcesFetch({ ...DEEPMIND, "https://deepmind.google/research/publications/231020/": "" });
+    const broken = async (url: string) => (url.endsWith("/231020/") ? new Response("down", { status: 503 }) : failing(url));
+    await scan({ commands: fakeCommands(), storePath, logDir, fetch: broken });
+    const fetch = sourcesFetch(DEEPMIND);
+
+    // #when
+    await scan({ commands: fakeCommands(), storePath, logDir, at: TUESDAY, fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://deepmind.google/research/publications/2"))).toHaveLength(3);
+  });
+
+  test("tells the ranker a Candidate was accepted at a Venue the config names, watched or not", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands();
+    const config = testConfig({ venues: { CHI: "S4363607743" } });
+
+    // #when
+    await scan({ commands, storePath, logDir, config, fetch: sourcesFetch({ "https://api.openalex.org/": fixture("openalex-works.json") }) });
+
+    // #then
+    expect(candidateIn(codexCalls(commands)[0]?.stdin, "doi:10.1145/3772318.3790001")).toEndWith("\nsignals: accepted at CHI");
+  });
+
+  test("still writes its Briefing when a pointer fails, recording which", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = fakeCommands({ rankings: PICKED });
+    const working = arxivFetch();
+    const fetch = async (url: string) => (url.startsWith("https://huggingface.co/") ? new Response("busy", { status: 429 }) : working(url));
+
+    // #when
+    const result = await scan({ commands, storePath, logDir, fetch });
+
+    // #then
+    expect({ outcome: result.outcome, hf: stored(storePath).scans[0]?.sources?.hf }).toEqual({ outcome: "written", hf: { error: "HF daily papers answered 429" } });
+  });
+});
+
+describe("a Daily Scan after missed or failed days", () => {
+  const API_FEED = fixture("arxiv-api.xml");
+  const RSS = "https://rss.arxiv.org/";
+  const API = "https://export.arxiv.org/";
+  const day = (date: string) => new Date(`${date}T12:00:00Z`);
+  const catchUpFetch = () => sourcesFetch({ [API]: API_FEED });
+  const CAUGHT_UP = { "arxiv:2610.29034": { score: 8, interests: ["Context management in AI"] } };
+
+  /** Daily Scans on each date, skipped: arXiv answers, nothing clears the bar. */
+  async function scannedOn(dates: string[], setup: { storePath: string; logDir: string }, fetch: () => Fetch = () => arxivFetch()) {
+    for (const date of dates) await scan({ ...setup, commands: fakeCommands(), fetch: fetch(), at: day(date) });
+  }
+
+  const submittedWindows = (urls: string[]) => urls.filter((url) => url.startsWith(API)).map((url) => url.match(/submittedDate:\[(\S+?)\]/)?.[1]);
+  const take = (commands: FakeCommands) => [...commands.vault.entries()].find(([path]) => path.startsWith("Research/Briefings/Daily/"))?.[1].match(/^> (.*)$/m)?.[1];
+
+  test("on the first Scan, reads only arXiv's latest announcement", async () => {
+    // #given
+    const setup = sandbox();
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith(RSS) || url.startsWith(API))).toEqual([`${RSS}rss/cs.AI+cs.CL+cs.HC`]);
+  });
+
+  test("on the first Scan, ranks OpenAlex's whole window once, at most the cap of batches", async () => {
+    // #given
+    const setup = sandbox();
+    const works = Array.from({ length: 5 }, (_, i) => ({ id: `https://openalex.org/W${i + 1}`, title: `Work ${i + 1}`, abstract_inverted_index: { Text: [0] } }));
+    const fetch = sourcesFetch({ "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ ...setup, commands, fetch, config: testConfig({ batch: { size: 2, cap: 2 } }) });
+
+    // #then
+    expect(codexCalls(commands).map(({ stdin }) => idsIn(stdin))).toEqual([
+      ["openalex:W1", "openalex:W2"],
+      ["openalex:W3", "openalex:W4"],
+    ]);
+  });
+
+  test("the day after a Scan, reads only arXiv's latest announcement", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-25"], setup);
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(submittedWindows(fetch.urls)).toEqual([]);
+  });
+
+  describe("with a gap of 1 day, a failed Scan", () => {
+    async function afterFailedDay() {
+      const setup = sandbox();
+      await scannedOn(["2026-10-24"], setup);
+      await scan({ ...setup, commands: fakeCommands({ notes: {} }), at: day("2026-10-25") });
+      const fetch = catchUpFetch();
+      const commands = fakeCommands({ rankings: CAUGHT_UP });
+      const result = await scan({ ...setup, commands, fetch });
+      return { fetch, commands, result };
+    }
+
+    test("asks the arXiv API for every Paper submitted since the last Scan that didn't fail, instead of the RSS feed", async () => {
+      // #when
+      const { fetch } = await afterFailedDay();
+
+      // #then
+      expect({ rss: fetch.urls.some((url) => url.startsWith(RSS)), windows: submittedWindows(fetch.urls) }).toEqual({
+        rss: false,
+        windows: ["202610210000+TO+202610261200"],
+      });
+    });
+
+    test("writes one Daily Briefing named for today, whose take names the dates it covers", async () => {
+      // #when
+      const { commands, result } = await afterFailedDay();
+
+      // #then
+      expect({ briefing: result.briefing, take: take(commands) }).toEqual({ briefing: BRIEFING, take: "Covers Oct 25–26. Today leans toward context." });
+    });
+  });
+
+  test("with a gap of 3 days, covers each missed day and today", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const fetch = catchUpFetch();
+    const commands = fakeCommands({ rankings: CAUGHT_UP });
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect({ windows: submittedWindows(fetch.urls), take: take(commands) }).toEqual({
+      windows: ["202610190000+TO+202610261200"],
+      take: "Covers Oct 23–26. Today leans toward context.",
+    });
+  });
+
+  test("with a gap of 3 days, asks HF daily papers for each date it covers", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(fetch.urls.filter((url) => url.startsWith("https://huggingface.co/"))).toEqual(
+      ["2026-10-23", "2026-10-24", "2026-10-25", "2026-10-26"].map((date) => `https://huggingface.co/api/daily_papers?date=${date}`),
+    );
+  });
+
+  test("with a gap of 3 days, gives the ranker the HF signal of a missed date", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const listed = JSON.stringify([{ paper: { id: "2610.29034" } }]);
+    const fetch = sourcesFetch({ [API]: API_FEED, "https://huggingface.co/api/daily_papers?date=2026-10-24": listed });
+    const commands = fakeCommands();
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect(codexCalls(commands)[0]?.stdin).toContain("keeps agents on task over 400 steps.\nsignals: on HF daily papers");
+  });
+
+  test("with a gap of 9 days, covers only the last 7 days", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-16"], setup);
+    const fetch = catchUpFetch();
+    const commands = fakeCommands({ rankings: CAUGHT_UP });
+
+    // #when
+    await scan({ ...setup, commands, fetch });
+
+    // #then
+    expect({ windows: submittedWindows(fetch.urls), take: take(commands) }).toEqual({
+      windows: ["202610190000+TO+202610261200"],
+      take: "Covers Oct 20–26. Today leans toward context.",
+    });
+  });
+
+  test("counts a day whose arXiv fetch failed as missed, though its Scan didn't fail", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-24"], setup);
+    const working = sourcesFetch();
+    await scannedOn(["2026-10-25"], setup, () => async (url) => (url.startsWith(RSS) ? new Response("busy", { status: 503 }) : working(url)));
+    const fetch = catchUpFetch();
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands(), fetch });
+
+    // #then
+    expect(submittedWindows(fetch.urls)).toEqual(["202610210000+TO+202610261200"]);
+  });
+
+  test("a catch-up Briefing still has at most 5 Picks", async () => {
+    // #given
+    const setup = sandbox();
+    await scannedOn(["2026-10-22"], setup);
+    const entries = Array.from({ length: 8 }, (_, i) => `<entry><id>http://arxiv.org/abs/2610.4000${i}v1</id><title>Paper ${i}</title><summary>Abstract ${i}.</summary></entry>`);
+    const fetch = sourcesFetch({ [API]: `<feed><opensearch:totalResults>8</opensearch:totalResults>${entries.join("")}</feed>` });
+    const rankings = Object.fromEntries(entries.map((_, i) => [`arxiv:2610.4000${i}`, { score: 9, interests: ["Context management in AI"] }]));
+
+    // #when
+    await scan({ ...setup, commands: fakeCommands({ rankings }), fetch });
+
+    // #then
+    expect(stored(setup.storePath).picks.length).toBe(5);
+  });
+});
+
+describe("a Daily Scan keeping the store and logs small", () => {
+  test("deletes the abstracts of Papers first seen over 30 days ago that weren't Picked", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands({ rankings: { "arxiv:2610.31679": PICKED["arxiv:2610.31679"] } }), at: new Date("2026-09-25T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    const lines = readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8").split("\n");
+    expect(lines.filter((line) => line.includes("abstract")).map((line) => line.replace(/^\S+ /, ""))).toEqual([
+      "Deleted the abstracts of Papers never Picked and first seen before 2026-09-26: 1",
+    ]);
+  });
+
+  test("keeps the abstracts of Papers first seen in the last 30 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    await scan({ storePath, logDir, commands: fakeCommands(), at: new Date("2026-09-26T12:00:00Z") });
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readFileSync(join(logDir, "2026-10-26-daily.log"), "utf8")).not.toContain("abstracts");
+  });
+
+  test("deletes its logs older than 90 days", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    mkdirSync(logDir, { recursive: true });
+    for (const file of ["2026-07-27-daily.log", "2026-07-27-weekly.log", "2026-07-28-daily.log", "notes.txt"]) writeFileSync(join(logDir, file), "");
+
+    // #when
+    await scan({ storePath, logDir, commands: fakeCommands() });
+
+    // #then
+    expect(readdirSync(logDir).sort()).toEqual(["2026-07-28-daily.log", "2026-10-26-daily.log", "notes.txt"]);
+  });
+});
+
+describe("a Daily Scan with Followed Groups", () => {
+  const FOLLOWING = `${INTERESTS}
+## Followed Groups
+- Koedinger lab: Kenneth Koedinger (A5012345678); Vincent Aleven (A5087654321)
+`;
+  const GROUP_PAPER = "doi:10.1145/3772318.3790001";
+  const groupWork = (extra: object = {}) => ({
+    id: "https://openalex.org/W4416000001",
+    doi: "https://doi.org/10.1145/3772318.3790001",
+    title: "Students Steering LLM Tutors: A Field Study",
+    abstract_inverted_index: { Students: [0], steer: [1] },
+    authorships: [{ author: { id: "https://openalex.org/A5099999999" } }, { author: { id: "https://openalex.org/A5087654321" } }],
+    ...extra,
+  });
+  const serving = (...works: object[]) =>
+    sourcesFetch({ "https://rss.arxiv.org/": ARXIV_FEED, "https://api.openalex.org/": JSON.stringify({ meta: { next_cursor: null }, results: works }) });
+  const following = (rankings: Record<string, { score: number; interests?: string[] }> = PICKED) =>
+    fakeCommands({ rankings, notes: { [INTERESTS_NOTE]: FOLLOWING } });
+
+  test("writes a Followed Group's Paper under From Followed Groups, whatever its score, after the ranked Picks", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({ ...PICKED, [GROUP_PAPER]: { score: 2, interests: ["AI in higher education"] } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toBe(`---
+tags: [briefing, briefing/daily]
+date: 2026-10-26
+picks: 3
+---
+
+# Daily Briefing · Mon 26 Oct 2026
+
+> Today leans toward context.
+
+1. **[MisconceptDialogue: Evaluation Criteria Shape Measured Success in LLM Math Tutoring](https://arxiv.org/abs/2610.31679)** · *AI in higher education · Context management in AI*
+   **Why it's here:** Why arxiv:2610.31679.
+   What arxiv:2610.31679 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-31679
+2. **[Context or Knowledge: How LLMs Attribute Their Own Answers](https://arxiv.org/abs/2610.32109)** · *Context management in AI*
+   **Why it's here:** Why arxiv:2610.32109.
+   What arxiv:2610.32109 found. *(from abstract)*
+   - [ ] Keep ^pick-2610-32109
+
+## From Followed Groups
+
+1. **[Students Steering LLM Tutors: A Field Study](https://doi.org/10.1145/3772318.3790001)** · **Koedinger lab** · *AI in higher education*
+   **Why it's here:** Why doi:10.1145/3772318.3790001.
+   What doi:10.1145/3772318.3790001 found. *(from abstract)*
+   - [ ] Keep ^pick-10-1145-3772318-3790001
+
+3 candidates · arXiv 2 · OpenAlex 1
+
+Followed Groups: Koedinger lab 1
+`);
+  });
+
+  test("records a Followed Group's Pick after the ranked Picks, naming its groups", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({ ...PICKED, [GROUP_PAPER]: { score: 2 } });
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(stored(storePath).picks.map(({ paper, rank }) => ({ paper, rank }))).toEqual([
+      { paper: "arxiv:2610.31679", rank: 1 },
+      { paper: "arxiv:2610.32109", rank: 2 },
+      { paper: GROUP_PAPER, rank: 3 },
+    ]);
+  });
+
+  test("asks OpenAlex for the works of every Followed Group member", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const fetch = serving();
+
+    // #when
+    await scan({ commands: following(), storePath, logDir, fetch });
+
+    // #then
+    expect(fetch.urls.map((url) => new URL(url).searchParams.get("filter")).filter((filter) => filter?.startsWith("authorships"))).toEqual([
+      "authorships.author.id:A5012345678|A5087654321,from_publication_date:2026-10-12,to_publication_date:2026-10-26",
+    ]);
+  });
+
+  test("writes a Daily Briefing whose only Picks are from Followed Groups", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+
+    // #when
+    const result = await scan({ commands: following({}), storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    expect(result).toEqual({ outcome: "written", briefing: BRIEFING });
+  });
+
+  test("Picks a Followed Group's Paper with no abstract, written from its title when it has no full text", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({});
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork({ abstract_inverted_index: null })) });
+
+    // #then
+    expect(commands.vault.get(BRIEFING)).toContain(`What ${GROUP_PAPER} found. *(from title)*`);
+  });
+
+  test("tells the writer which Picks a Followed Group wrote", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following({});
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving(groupWork()) });
+
+    // #then
+    const prompt = commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+    expect(prompt).toContain(`id: ${GROUP_PAPER}\ntitle: Students Steering LLM Tutors: A Field Study\nfollowed group: Koedinger lab\n`);
+  });
+
+  test("lists the Picks to the writer best first, never mentioning Followed Groups, on a day with no Pick from one", async () => {
+    // #given
+    const { storePath, logDir } = sandbox();
+    const commands = following();
+
+    // #when
+    await scan({ commands, storePath, logDir, fetch: serving() });
+
+    // #then
+    const prompt = commands.calls.find(({ argv }) => argv[0] === "claude")?.stdin ?? "";
+    expect({ heading: prompt.includes("Today's Picks, best first:\n"), mentions: /followed group/i.test(prompt) }).toEqual({ heading: true, mentions: false });
+  });
+
+  describe("when OpenAlex shows a Followed Group wrote a Paper an earlier Scan ranked", () => {
+    const PREPRINT = "arxiv:2610.32109";
+    const ofPreprint = groupWork({ doi: null, locations: [{ landing_page_url: "https://arxiv.org/abs/2610.32109" }] });
+
+    test("Picks it as a Late Pick when it was never Picked", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following({}), storePath, logDir });
+      const commands = following({});
+
+      // #when
+      await scan({ commands, storePath, logDir, at: TUESDAY, fetch: serving(ofPreprint) });
+
+      // #then
+      expect(stored(storePath).picks.map(({ scanId, paper }) => ({ scanId, paper }))).toEqual([{ scanId: 2, paper: PREPRINT }]);
+    });
+
+    test("never Picks it again when it was already Picked", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following(), storePath, logDir });
+
+      // #when
+      const result = await scan({ commands: following({}), storePath, logDir, at: TUESDAY, fetch: serving(ofPreprint) });
+
+      // #then
+      expect(result).toEqual({ outcome: "skipped", reason: "no new Candidates" });
+    });
+
+    test("does not Pick it when it was first seen over 14 days ago", async () => {
+      // #given
+      const { storePath, logDir } = sandbox();
+      await scan({ commands: following({}), storePath, logDir });
+
+      // #when
+      const result = await scan({ commands: following({}), storePath, logDir, at: new Date("2026-11-10T12:00:00Z"), fetch: serving(ofPreprint) });
+
+      // #then
+      expect(result.outcome).toBe("skipped");
+    });
+  });
+});

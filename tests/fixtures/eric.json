@@ -1,0 +1,21 @@
+{
+  "response": {
+    "numFound": 2,
+    "start": 0,
+    "docs": [
+      {
+        "id": "EJ1490001",
+        "title": "Generative AI Feedback in First-Year Writing Courses",
+        "description": "A semester-long study of 412 students receiving LLM feedback on drafts.",
+        "url": "http://dx.doi.org/10.1080/03075079.2026.2290001",
+        "e_fulltextauth": 0
+      },
+      {
+        "id": "ED670002",
+        "title": "Institutional Policies on   AI Use in Assessment",
+        "description": "A survey of 120 university policies.",
+        "e_fulltextauth": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "briefing": "Research/Briefings/Daily/2026-10-26 Daily Briefing.md",
+  "pick": {
+    "paper": "doi:10.1016/j.compedu.2026.105301",
+    "title": "Generative AI Policies Across 120 University Syllabi",
+    "authors": ["Grace Liu", "Ahmed Saleh"],
+    "url": "https://doi.org/10.1016/j.compedu.2026.105301",
+    "abstract": "We coded the generative AI policies of 120 syllabi from 14 universities. 41% banned AI outright, 37% allowed it with disclosure and 22% required it for at least one assignment. Courses that required AI also more often redesigned assessment around in-class work.",
+    "interests": ["AI in higher education"],
+    "why": "What university instructors actually allow, ban or require in their AI policies.",
+    "summary": "Of 120 syllabi, 41% banned generative AI, 37% allowed it with disclosure and 22% required it."
+  }
+}

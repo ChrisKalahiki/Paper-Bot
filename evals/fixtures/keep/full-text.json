@@ -1,0 +1,13 @@
+{
+  "briefing": "Research/Briefings/Daily/2026-10-21 Daily Briefing.md",
+  "pick": {
+    "paper": "arxiv:2610.18211",
+    "title": "Semester-Long Memory for Course Assistants",
+    "authors": ["Priya Raman", "Tomás Ibarra"],
+    "url": "https://arxiv.org/abs/2610.18211",
+    "abstract": "Course assistants built on LLMs forget each student between sessions. We give an assistant a per-student memory that it summarises after every session and retrieves at the start of the next, and deploy it in two introductory programming courses (n = 412) for a full semester. Compared with a stateless assistant, the memory assistant resolved 18% more follow-up questions without a TA, and students rated its answers as more relevant to their own code. Students also reported discomfort when the assistant recalled past mistakes unprompted.",
+    "interests": ["AI in higher education", "Context management in AI"],
+    "why": "Per-student memory deployed in university courses for a full semester, where both Interests meet.",
+    "summary": "After each session the assistant wrote a 200-word summary of the student's goals, misconceptions and code and retrieved the last three next time; over 9,870 sessions follow-ups resolved without a TA rose from 61% to 79%, while 23% of interviewed students said recalled mistakes felt like surveillance."
+  }
+}
