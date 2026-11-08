@@ -8,5 +8,10 @@
     "hash": "c6c312c4b0d9b1d0",
     "date": "2026-11-07",
     "model": "claude-sonnet-5-5"
+  },
+  "weekly": {
+    "hash": "6575f57255f57751",
+    "date": "2026-11-07",
+    "model": "claude-sonnet-5-5"
   }
 }
