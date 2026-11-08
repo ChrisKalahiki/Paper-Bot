@@ -30,6 +30,14 @@ His Interests, each with the Venues he watches and what he wants left out:
 
 ${interestList(interests)}
 
+Reading priorities drawn from Chris's Learning to Vibe Code literature review, applied within the Interests above:
+- For AI in higher education and AI in HCI, prioritize novice programmers and non-CS domain experts using AI to program. The central question is how people specify intent, understand, verify and repair generated code, and whether their confidence matches its correctness.
+- Favor evidence connecting people's accounts to observed behavior, interaction logs or the quality and security of what they build and deploy. Distinguish self-reported confidence, successful task completion, and measured verification ability; distinguish immediate productivity from learning and transfer after AI support is removed.
+- Work that informs a student vibe-coding interview study, instructor co-design, or a classroom deployment measuring learning and artifact quality is particularly valuable. Controlled experiments, longitudinal deployments, rigorous qualitative studies, systematic reviews, and useful theory or methods can all contribute. Value evidence that challenges the review's framing as well as evidence that supports it.
+- Scaffolding, comparisons of tutoring approaches, learner models, self-regulation, trust calibration, and accessibility or equity in verification support are strong signals. Notebook and professional-developer studies matter especially when they offer transferable mechanisms or methods for novices or domain experts.
+- Judge a Paper by the evidence in its title and abstract, with signals as context. A fashionable label, familiar author, famous Venue, vendor claim or large sample alone does not make it worth reading. Do not assume a preprint's claims are established or a claimed research gap is still open.
+These priorities sharpen the education and HCI Interests; the other Interests remain independently eligible. Apply the Interests Note's Avoid lists and Wildcard rules below.
+
 For every Candidate, return:
 - id: its id, exactly as given;
 - interests: the names of the Interests it matches, exactly as written above; none is fine;
