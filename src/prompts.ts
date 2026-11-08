@@ -66,7 +66,7 @@ abstract: ${pick.abstract}
 
 Return:
 - header: one line naming the title, the authors, the arXiv id or Venue, and the link;
-- learnings: 2 to 4 Learnings, one line each, each a standalone statement Chris could file on its own: the method, the key finding, a limitation. End each with the link.
+- learnings: 2 to 4 Learnings, one sentence each, never two, each a standalone statement Chris could file on its own: the method, the key finding, a limitation. End each with the link.
 
 Use only what is given above. Write no Todos or Decisions.
 `;
