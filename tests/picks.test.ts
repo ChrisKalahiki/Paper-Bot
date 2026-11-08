@@ -264,20 +264,59 @@ describe("the paper-bot picks command", () => {
     return { exitCode: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
   }
 
-  test("prints the report as JSON from a store it cannot write to, and needs no config", () => {
+  test("prints the report as JSON from a read-only snapshot, and needs no config", () => {
     // #given
     const box = sandbox();
     emptyStore(box);
+    const snapshot = new Database(box.storePath);
+    try {
+      // A snapshot in a read-only directory cannot create WAL sidecar files.
+      snapshot.run("PRAGMA journal_mode = DELETE");
+    } finally {
+      snapshot.close();
+    }
     chmodSync(box.storePath, 0o444);
     chmodSync(dirname(box.storePath), 0o555);
 
-    // #when
-    const result = paperBot(box, ["picks", "--json"]);
+    try {
+      // #when
+      const result = paperBot(box, ["picks", "--json"]);
 
-    // #then
-    chmodSync(dirname(box.storePath), 0o755);
-    const json: unknown = result.exitCode === 0 ? JSON.parse(result.stdout) : result.stderr;
-    expect(json).toEqual({ scans: { daily: null, weekly: null }, keeps: { failing: [] }, week: expect.stringMatching(/^\d{4}-W\d{2}$/), picks: [] });
+      // #then
+      const json: unknown = result.exitCode === 0 ? JSON.parse(result.stdout) : result.stderr;
+      expect(json).toEqual({ scans: { daily: null, weekly: null }, keeps: { failing: [] }, week: expect.stringMatching(/^\d{4}-W\d{2}$/), picks: [] });
+    } finally {
+      chmodSync(dirname(box.storePath), 0o755);
+      chmodSync(box.storePath, 0o644);
+    }
+  });
+
+  test("reads a committed Scan from a live WAL store with a writable directory", () => {
+    // #given
+    const box = sandbox();
+    const writer = openStore(box.storePath);
+    try {
+      writer.settleScan(writer.startScan("daily", "2026-10-26", MONDAY), { outcome: "skipped", reason: "No Candidates", sources: {}, at: MONDAY }, []);
+      chmodSync(box.storePath, 0o444);
+
+      // #when
+      const result = paperBot(box, ["picks", "--json"]);
+
+      // #then
+      const json: unknown = result.exitCode === 0 ? JSON.parse(result.stdout) : result.stderr;
+      expect(json).toEqual({
+        scans: {
+          daily: { at: "2026-10-26T12:00:00.000Z", date: "2026-10-26", outcome: "skipped", reason: "No Candidates", sources: [] },
+          weekly: null,
+        },
+        keeps: { failing: [] },
+        week: expect.stringMatching(/^\d{4}-W\d{2}$/),
+        picks: [],
+      });
+    } finally {
+      chmodSync(box.storePath, 0o644);
+      writer.close();
+    }
   });
 
   test("before the first Scan, with no store yet, prints no Scans, failing Keeps or Picks, and creates no store", () => {
