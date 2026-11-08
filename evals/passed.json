@@ -5,12 +5,12 @@
     "model": "gpt-6.1-sol"
   },
   "daily": {
-    "hash": "c6c312c4b0d9b1d0",
+    "hash": "26ef156078c86170",
     "date": "2026-11-07",
     "model": "claude-sonnet-5-5"
   },
   "weekly": {
-    "hash": "6575f57255f57751",
+    "hash": "2d4aa7ce9d921b3a",
     "date": "2026-11-07",
     "model": "claude-sonnet-5-5"
   },
