@@ -93,7 +93,7 @@ ${listed}${followed}
 
 Return:
 - take: one or two sentences, at most 60 words, on what today's Picks share or what stands out among them;
-- picks: one entry per Pick, with its id exactly as given, a why line of at most 30 words on why it matters to Chris, and a summary of at most two sentences, never three, on what the Paper did and found, drawn from its full text where it has one.
+- picks: one entry per Pick, with its id exactly as given, a why line of about 20 words, never more than 30, on why it matters to Chris, and a summary of at most two sentences, never three, on what the Paper did and found, drawn from its full text where it has one.
 
 Use only what is given above. Include no URLs, and name no Paper that is not listed.
 `;
