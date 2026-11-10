@@ -1,6 +1,7 @@
 {
   "name": "paper-bot",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": {
     "paper-bot": "src/cli.ts"
